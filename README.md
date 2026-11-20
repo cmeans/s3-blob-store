@@ -250,15 +250,15 @@ hasn't been run yet.
   blobs are gone through every API this store exposes. Whether AWS
   retains anything in internal backups is not observable from
   outside, so do not treat deletion here as proof of destruction.
-- **The Lambda is publicly invocable.** A bearer-style Function URL
+- **The Function URL is public.** A bearer-style Function URL
   needs a `lambda:InvokeFunction` grant alongside
-  `lambda:InvokeFunctionUrl`, and the template grants it
-  unconditionally today. (Scoping it to calls through the URL is
-  tracked in [#11](https://github.com/cmeans/s3-blob-store/issues/11).)
-  Authentication therefore lives in the handler, which is the
-  design assumption throughout: worst case, an unauthenticated
-  caller reaches a function that returns 401 and can only ever
-  move ciphertext.
+  `lambda:InvokeFunctionUrl`. The template limits that grant to
+  calls through the URL (`InvokedViaFunctionUrl`); the Terraform
+  route can't yet, so there any AWS principal can also invoke the
+  function directly. Either way, authentication lives in the
+  handler, which is the design assumption throughout: worst case,
+  an unauthenticated caller reaches a function that returns 401
+  and can only ever move ciphertext.
 - **Token rotation is a re-run.** Paste the deploy line again
   (step 3's check will find the stack; that's expected here): it
   generates a fresh token, updates the stack with its digest,

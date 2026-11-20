@@ -56,7 +56,7 @@ an agent must not keep in its own context or memory.
   second, default store). `<x>`: 1 to 21 lowercase letters,
   digits and hyphens, not starting or ending with a hyphen
   (longer suffixes can overrun S3's 63-character bucket-name
-  limit in long region names; see #11).
+  limit in long region names, so the template refuses them).
 - **Restarts and destructive steps belong to the user** unless
   they have explicitly delegated them. Deleting a stack deletes
   its bucket's contents' only access path; confirm first unless
