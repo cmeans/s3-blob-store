@@ -62,6 +62,32 @@ class BuildTemplateTest(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("template.yaml is stale", r.stderr)
 
+    def test_crlf_template_fails_check(self):
+        path = self.tmp / "template.yaml"
+        path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+        r = self.run_tool("--check")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("template.yaml is stale", r.stderr)
+
+    def test_generated_template_is_lf_bytes(self):
+        r = self.run_tool()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        data = (self.tmp / "template.yaml").read_bytes()
+        self.assertNotIn(b"\r", data)
+        self.assertEqual(data, (REPO / "template.yaml").read_bytes())
+
+    def test_handler_marker_must_appear_exactly_once(self):
+        skeleton = self.tmp / "template.skeleton.yaml"
+        text = (REPO / "template.skeleton.yaml").read_text(encoding="utf-8")
+        marker_line = next(ln for ln in text.splitlines() if "@@HANDLER@@" in ln)
+        for count, body in ((0, text.replace(marker_line + "\n", "")),
+                            (2, text.replace(marker_line, marker_line + "\n" + marker_line))):
+            with self.subTest(markers=count):
+                skeleton.write_text(body, encoding="utf-8")
+                r = self.run_tool()
+                self.assertEqual(r.returncode, 1)
+                self.assertIn(f"expected exactly one @@HANDLER@@ line, found {count}", r.stderr)
+
     def test_missing_template_fails_check(self):
         (self.tmp / "template.yaml").unlink()
         r = self.run_tool("--check")

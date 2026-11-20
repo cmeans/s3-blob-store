@@ -121,11 +121,15 @@ def main():
     if "--check" in sys.argv:
         if not OUTPUT.is_file():
             raise SystemExit("FAIL: template.yaml is missing; run tools/build_template.py")
-        if OUTPUT.read_text(encoding="utf-8") != text:
+        # Bytes, not text: read_text would translate CRLF and call a CRLF
+        # copy current, though its size and SHA-256 differ from the build's.
+        if OUTPUT.read_bytes() != text.encode("utf-8"):
             raise SystemExit("FAIL: template.yaml is stale; run tools/build_template.py")
         print(f"ok: template.yaml is current; {sizes}")
         return 0
-    OUTPUT.write_text(text, encoding="utf-8")
+    # Bytes, so the file is LF on every platform (write_text would write
+    # CRLF on Windows).
+    OUTPUT.write_bytes(text.encode("utf-8"))
     print(f"wrote template.yaml; {sizes}; ZipFile round-trip verified")
     return 0
 

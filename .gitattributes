@@ -1,0 +1,6 @@
+# LF in the repository and on checkout, on every platform. template.yaml is
+# hash-matched against the release asset (#7), and build_template.py --check
+# compares it byte for byte; the handler is inlined into it.
+template.yaml text eol=lf
+template.skeleton.yaml text eol=lf
+lambda/index.py text eol=lf
