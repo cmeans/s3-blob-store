@@ -19,3 +19,6 @@ crash.*.log
 # AWS / credential material
 *.pem
 .env
+
+# Python bytecode (from running the tests)
+__pycache__/

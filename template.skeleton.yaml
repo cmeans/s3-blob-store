@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  s3-blob-store: one private S3 bucket holding ciphertext blobs,
+  fronted by a Lambda Function URL that checks a bearer token.
+  The Lambda never decrypts; it stores and returns opaque text
+  by label. CloudFormation holds its own state, so there is no
+  bootstrap stack and no backend file. This template is GENERATED
+  from template.skeleton.yaml + lambda/index.py by
+  tools/build_template.py — edit those, not template.yaml.
+
+Parameters:
+  BearerTokenSha256:
+    Type: String
+    NoEcho: true
+    AllowedPattern: "^[0-9a-f]{64}$"
+    ConstraintDescription: Must be a lowercase SHA-256 hex digest (64 characters).
+    Description: >-
+      SHA-256 hex digest of the bearer token that will guard the
+      Function URL. Only the digest enters the stack: the Lambda
+      hashes each presented token and compares digests, so the
+      digest cannot be replayed as a credential. Generate the token
+      and this digest with the one-liner in the README (CloudShell),
+      and keep the plaintext token in a password manager. Note:
+      CloudFormation ignores NoEcho parameters in quick-create
+      URLs, so you paste this value into the form — it is never
+      carried in the Launch Stack link itself.
+
+  NameSuffix:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[a-z0-9][a-z0-9-]{0,20}[a-z0-9]$|^[a-z0-9]$"
+    ConstraintDescription: Must be empty, or lowercase letters, digits and dashes.
+    Description: >-
+      OPTIONAL suffix appended to the derived blob bucket name,
+      for a second instance of the store in the same account and
+      region. Leave empty normally.
+
+Conditions:
+  HasNameSuffix: !Not
+    - !Equals
+      - !Ref NameSuffix
+      - ""
+
+Resources:
+  # ----------------------------------------------------------------
+  # Blob bucket. Versioning is OFF (the S3 default for a new bucket;
+  # there is deliberately no VersioningConfiguration here): a
+  # replaced or deleted blob must actually be gone through the API,
+  # or the STORE-TEST history check fails.
+  # The four bucket sub-resources Terraform needs (public access
+  # block, encryption, ownership controls) are properties here.
+  # ----------------------------------------------------------------
+  BlobBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !If
+        - HasNameSuffix
+        - !Sub "handoff-blobs-${AWS::AccountId}-${AWS::Region}-${NameSuffix}"
+        - !Sub "handoff-blobs-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      Tags:
+        - Key: Purpose
+          Value: blob-store
+        - Key: Project
+          Value: s3-blob-store
+
+  # TLS only, same posture as the Terraform version's bucket policy.
+  BlobBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BlobBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt BlobBucket.Arn
+              - !Sub "${BlobBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  # ----------------------------------------------------------------
+  # Lambda execution role: the only identity that touches the
+  # bucket. Object actions only, on this bucket's blob prefix only.
+  # No RoleName on purpose: CloudFormation generates the physical
+  # name, so the stack needs only CAPABILITY_IAM (not
+  # CAPABILITY_NAMED_IAM) and a second stack in the same account
+  # cannot collide with this one.
+  # ----------------------------------------------------------------
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: blob-object-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub "${BlobBucket.Arn}/blobs/*"
+
+  # ----------------------------------------------------------------
+  # The Lambda and its public Function URL. AuthorizationType NONE
+  # because the bearer-token check happens in the handler; a request
+  # without the token gets a 401 from the code and never touches S3.
+  # No FunctionName, for the same generated-name reason as the role.
+  # The handler code is inline (ZipFile, limit 4,096 characters;
+  # lambda/index.py is the canonical source and the build script
+  # refuses to generate past the limit).
+  # ----------------------------------------------------------------
+  BlobFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.12
+      Timeout: 10
+      MemorySize: 128
+      Role: !GetAtt LambdaRole.Arn
+      Environment:
+        Variables:
+          BLOB_BUCKET: !Ref BlobBucket
+          BLOB_PREFIX: "blobs/"
+          BEARER_TOKEN_SHA256: !Ref BearerTokenSha256
+      Code:
+        ZipFile: |
+          @@HANDLER@@
+  BlobFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !GetAtt BlobFunction.Arn
+
+  FunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref BlobFunction
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  # AWS also requires a separate lambda:InvokeFunction permission
+  # before a NONE-auth Function URL will serve requests at all
+  # (observed live 2026-11-20 on the Terraform deployment: with only
+  # the permission above, every request gets a 403 from AWS before
+  # the handler runs). CloudFormation's Permission resource cannot
+  # attach the lambda:FunctionUrlAuthType condition to this action
+  # either, so this grant is unconditional at the AWS layer. The
+  # handler's bearer-token check is therefore the actual gate for
+  # every invocation path, which the design already assumes: the
+  # function holds nothing but ciphertext access and returns 401
+  # before touching S3.
+  FunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BlobFunction
+      Principal: "*"
+
+Outputs:
+  BlobBucketName:
+    Description: Name of the blob bucket (versioning off).
+    Value: !Ref BlobBucket
+  FunctionUrl:
+    Description: Base URL of the blob front door. Blobs live at <url>blobs/<label>.
+    Value: !GetAtt BlobFunctionUrl.FunctionUrl
+  LambdaRoleArn:
+    Description: ARN of the Lambda execution role (the only identity with blob access).
+    Value: !GetAtt LambdaRole.Arn
+  Region:
+    Description: Region this stack was created in.
+    Value: !Ref AWS::Region

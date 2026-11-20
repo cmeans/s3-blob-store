@@ -42,6 +42,19 @@ jobs:
           set -euo pipefail
           echo "ruff: $(git ls-files -- '*.py' | wc -l) tracked Python files"
           git ls-files -z -- '*.py' | xargs -0 --no-run-if-empty pipx run ruff==0.15.7 check --
+      - name: template.yaml is current and within both size limits
+        # Fails if template.yaml is stale or hand-edited, if the handler
+        # passes the repo's 4,096-character ZipFile limit, or if the template
+        # passes CloudFormation's 51,200-byte TemplateBody limit.
+        run: python3 tools/build_template.py --check
+      - name: build tool tests
+        run: python3 -m unittest discover -s tests -v
+      - name: cfn-lint
+        run: pipx run cfn-lint==1.59.0 template.yaml
+      - name: one handler for both deploy paths
+        # Until the Terraform route moves under alternates/ and reads
+        # lambda/index.py directly (#6), its copy must stay identical.
+        run: cmp lambda/index.py terraform/lambda/index.py
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff
       - name: terraform validate
