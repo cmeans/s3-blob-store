@@ -151,8 +151,8 @@ resource "aws_lambda_function" "blobs" {
 
   environment {
     variables = {
-      BLOB_BUCKET        = aws_s3_bucket.blobs.id
-      BLOB_PREFIX        = local.blob_prefix
+      BLOB_BUCKET         = aws_s3_bucket.blobs.id
+      BLOB_PREFIX         = local.blob_prefix
       BEARER_TOKEN_SHA256 = var.bearer_token_sha256
     }
   }
