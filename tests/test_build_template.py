@@ -109,8 +109,69 @@ class BuildTemplateTest(unittest.TestCase):
         before = (self.tmp / "template.yaml").read_bytes()
         r = self.run_tool()
         self.assertEqual(r.returncode, 1)
-        self.assertIn(f"{ZIPFILE_LIMIT + 1} characters, over the CloudFormation ZipFile limit", r.stderr)
+        self.assertIn(f"{ZIPFILE_LIMIT + 1} characters, over the {ZIPFILE_LIMIT}-character ZipFile limit", r.stderr)
         self.assertEqual((self.tmp / "template.yaml").read_bytes(), before)
+
+    def pad_handler_to(self, chars):
+        """Pad lambda/index.py with a trailing comment to exactly chars characters."""
+        handler = self.tmp / "lambda" / "index.py"
+        text = (REPO / "lambda" / "index.py").read_text(encoding="utf-8")
+        handler.write_text(text + "#" * (chars - len(text) - 1) + "\n", encoding="utf-8")
+        self.assertEqual(len(handler.read_text(encoding="utf-8")), chars)
+
+    def test_zipfile_warning_starts_past_4000(self):
+        self.pad_handler_to(4000)
+        r = self.run_tool()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("warning: handler", r.stderr)
+        self.pad_handler_to(4001)
+        r = self.run_tool()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("warning: handler is 4001 characters", r.stderr)
+
+    def test_zipfile_round_trip_mismatch_fails(self):
+        # The marker two spaces deeper than the ZipFile block expects: the
+        # block scalar then carries two extra spaces on every line, and the
+        # extracted code no longer matches lambda/index.py.
+        skeleton = self.tmp / "template.skeleton.yaml"
+        text = skeleton.read_text(encoding="utf-8")
+        self.assertEqual(text.count("@@HANDLER@@"), 1)
+        lines = [("  " + ln if "@@HANDLER@@" in ln else ln) for ln in text.splitlines()]
+        skeleton.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        before = (self.tmp / "template.yaml").read_bytes()
+        r = self.run_tool()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("does not match lambda/index.py", r.stderr)
+        self.assertEqual((self.tmp / "template.yaml").read_bytes(), before)
+
+    def test_handler_final_newline_must_be_exactly_one(self):
+        handler = self.tmp / "lambda" / "index.py"
+        text = (REPO / "lambda" / "index.py").read_text(encoding="utf-8").rstrip("\n")
+        for ending in ("", "\n\n"):
+            with self.subTest(ending=repr(ending)):
+                handler.write_text(text + ending, encoding="utf-8")
+                r = self.run_tool()
+                self.assertEqual(r.returncode, 1)
+                self.assertIn("lambda/index.py must end with exactly one newline", r.stderr)
+
+    def test_missing_sources_fail_without_traceback(self):
+        for rel in ("lambda/index.py", "template.skeleton.yaml"):
+            with self.subTest(rel=rel):
+                self.setUp()
+                (self.tmp / rel).unlink()
+                r = self.run_tool()
+                self.assertEqual(r.returncode, 1)
+                self.assertIn(f"FAIL: {rel} is missing", r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
+
+    def test_unknown_argument_is_refused(self):
+        before = (self.tmp / "template.yaml").read_bytes()
+        for args in (["--chek"], ["--check", "--bogus"]):
+            with self.subTest(args=args):
+                r = self.run_tool(*args)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn("unknown argument", r.stderr)
+                self.assertEqual((self.tmp / "template.yaml").read_bytes(), before)
 
     def test_handler_at_zipfile_limit_builds(self):
         handler = self.tmp / "lambda" / "index.py"

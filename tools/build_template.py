@@ -7,8 +7,11 @@ indentation the ZipFile block scalar needs; this script replaces
 that line with the handler source, indented to match.
 
 Guards (the reason this script exists):
-  - CloudFormation's ZipFile limit is 4,096 characters. The build
-    FAILS if the handler source exceeds it, and warns past 4,000.
+  - Inline ZipFile code is kept to 4,096 characters, the limit
+    CloudFormation long documented for it (its current reference gives
+    only a 4 MB zip limit, so this is the repo's own budget until a
+    larger inline handler is tested on a real stack; see #11). The
+    build FAILS if the handler source exceeds it, and warns past 4,000.
   - CloudFormation's TemplateBody limit is 51,200 bytes. The one-paste
     deploy passes the template as a body (`aws cloudformation deploy
     --template-file` with no S3 bucket), so the build FAILS if the
@@ -21,6 +24,7 @@ Guards (the reason this script exists):
 Usage:
   python3 tools/build_template.py           # (re)generate template.yaml
   python3 tools/build_template.py --check   # verify template.yaml is current
+Any other argument is refused.
 """
 import sys
 from pathlib import Path
@@ -39,21 +43,30 @@ def indent_of(line):
     return line[: len(line) - len(line.lstrip())]
 
 
+def read_source(path):
+    if not path.is_file():
+        raise SystemExit(f"FAIL: {path.relative_to(ROOT)} is missing")
+    return path.read_text(encoding="utf-8")
+
+
 def generate():
-    handler = HANDLER.read_text(encoding="utf-8")
+    handler = read_source(HANDLER)
     if len(handler) > ZIPFILE_LIMIT:
         raise SystemExit(
             f"FAIL: lambda/index.py is {len(handler)} characters, over the "
-            f"CloudFormation ZipFile limit of {ZIPFILE_LIMIT}. Shorten the "
-            f"handler or switch the template to an S3-hosted code package "
-            f"(which would give up the single any-region template)."
+            f"{ZIPFILE_LIMIT}-character ZipFile limit. Shorten the handler, "
+            f"or test a larger inline handler on a real stack before raising "
+            f"the limit."
         )
     if len(handler) > ZIPFILE_WARN:
         print(f"warning: handler is {len(handler)} characters; "
               f"the ZipFile limit is {ZIPFILE_LIMIT}", file=sys.stderr)
+    if not handler.endswith("\n") or handler.endswith("\n\n"):
+        raise SystemExit("FAIL: lambda/index.py must end with exactly one newline "
+                         "(a YAML block scalar keeps one, so the two would differ)")
     out = []
     replaced = 0
-    for line in SKELETON.read_text(encoding="utf-8").splitlines():
+    for line in read_source(SKELETON).splitlines():
         if "@@HANDLER@@" in line:
             pad = indent_of(line)
             for code_line in handler.rstrip("\n").splitlines():
@@ -82,6 +95,10 @@ def extract_zipfile(template_text):
 
 
 def main():
+    unknown = [a for a in sys.argv[1:] if a != "--check"]
+    if unknown:
+        raise SystemExit(f"FAIL: unknown argument(s): {' '.join(unknown)}; "
+                         f"usage: build_template.py [--check]")
     text, handler = generate()
     extracted = extract_zipfile(text)
     if extracted != handler:
