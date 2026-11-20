@@ -5,8 +5,9 @@ name: PR Label Automation (CI)
 # is on (pr-labels.yml's on-unlabel takes over when it comes off).
 # Adapted from muse-field-kit.
 #
-# NOTE: references the CI workflow by name ("CI"); if ci.yml's name changes,
-# update it here and in pr-labels.yml.
+# NOTE: references the CI workflow by its name ("CI"): if ci.yml's `name:`
+# changes, update `workflows:` here. pr-labels.yml finds it by file instead
+# (actions/workflows/ci.yml): if the file is renamed, update that query.
 #
 # LIMITATION: workflow_run always runs this file as it is on main, never a
 # PR's copy, so a change to it takes effect only after merge. On the PR that
