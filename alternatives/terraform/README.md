@@ -39,15 +39,15 @@ part of this store: it's account- and region-level, and can hold the
 state of any number of Terraform projects, each under its own key.
 Use one you already have, or create one with the shared bootstrap
 stack, [`../terraform-state-bootstrap/bootstrap.yaml`](../terraform-state-bootstrap/bootstrap.yaml):
-a small CloudFormation stack that creates only that bucket, named
-`tfstate-<account>-<region>`, versioned, and kept if the stack is
-deleted.
+a small CloudFormation stack that creates only that bucket and its
+TLS-only policy. The bucket is named `tfstate-<account>-<region>`,
+versioned, and kept if the stack is deleted.
 
 ### Two buckets, opposite versioning
 
 | Bucket | Versioning | Why |
 | --- | --- | --- |
-| Terraform state bucket (shared) | **On** | Old state versions are the recovery path if a write goes bad. |
+| Terraform state bucket (shared) | **On** (the bootstrap stack's is; turn it on in your own) | Old state versions are the recovery path if a write goes bad. |
 | Blob bucket (Terraform) | **Off** | A replaced or deleted blob must actually be gone through the API. |
 
 State isn't stored in the blob bucket or through the blob store. That
@@ -62,9 +62,10 @@ stay on your machine; nothing in this repo needs them at runtime.
 Run the commands from the repo root.
 
 1. **Have a state bucket.** If you already keep Terraform state in
-   an S3 bucket in this account, use it, and skip to step 2 with its
-   name and region. Otherwise, once per account and region, create a
-   stack from `alternatives/terraform-state-bootstrap/bootstrap.yaml` in the
+   an S3 bucket in this account, use it (with versioning on), and
+   skip to step 2 with its name and region. Otherwise, once per
+   account and region, create a stack from
+   `alternatives/terraform-state-bootstrap/bootstrap.yaml` in the
    CloudFormation console (no parameters needed), and note its
    `StateBucketName` and `Region` outputs. Keep that stack when you
    remove the store: other Terraform projects may share its bucket.
@@ -152,7 +153,8 @@ managing it from this directory:
 single `lambda/index.py` file rather than the old `lambda/`
 directory, but the archive is the same (one `index.py` entry, same
 bytes and mode), so its hash, and the Lambda, are unchanged. The
-bootstrap template moved to `alternatives/terraform-state-bootstrap/`, and its
-description, `Project` tag (now removed) and output descriptions
-changed. Its bucket is the same; your existing bootstrap stack needs
-no update, and it's safe to leave it as it is.
+bootstrap template moved to
+`alternatives/terraform-state-bootstrap/`, and its description,
+`Project` tag (now removed) and output descriptions changed. Its
+bucket is the same; your existing bootstrap stack needs no update,
+and it's safe to leave it as it is.

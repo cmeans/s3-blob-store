@@ -1,10 +1,11 @@
 # Terraform backend and provider for the s3-blob-store Terraform route.
 #
 # State goes in a Terraform state bucket: one you already have, or
-# the shared one ../terraform-state-bootstrap/bootstrap.yaml creates. The bucket and
-# region are left out on purpose (a partial backend configuration), so
-# this file needs no edits: pass them to init (for the bootstrap
-# stack, its StateBucketName and Region outputs):
+# the shared one ../terraform-state-bootstrap/bootstrap.yaml
+# creates. The bucket and region are left out on purpose (a partial
+# backend configuration), so this file needs no edits: pass them to
+# init (for the bootstrap stack, its StateBucketName and Region
+# outputs):
 #
 #   terraform init \
 #     -backend-config="bucket=<StateBucketName output>" \

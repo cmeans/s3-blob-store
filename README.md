@@ -43,9 +43,9 @@ never touches.
   authorized callers.
 - `alternatives/terraform/`: the same resources deployed with
   Terraform, with its own README.
-- `alternatives/terraform-state-bootstrap/`: a shared Terraform state bucket, one per
-  account and region, for the Terraform route (and any other
-  Terraform project) if you don't have one already.
+- `alternatives/terraform-state-bootstrap/`: a shared Terraform
+  state bucket, one per account and region, for the Terraform route
+  (and any other Terraform project) if you don't have one already.
 - `SCORECARD.md`: the full STORE-TEST result from the first live
   deployment, including the caveats and the two AWS behaviors that
   bit us on the way.

@@ -50,9 +50,12 @@ jobs:
       - name: build tool tests
         run: python3 -m unittest discover -s tests -v
       - name: cfn-lint
-        # Both CloudFormation templates: the store, and the shared
-        # Terraform state bucket.
-        run: pipx run cfn-lint==1.59.0 template.yaml alternatives/terraform-state-bootstrap/bootstrap.yaml
+        # Every tracked CloudFormation template (every .yaml outside
+        # .github/): the store, its skeleton, and the shared Terraform
+        # state bucket, so a new template is linted without a list to keep.
+        run: |
+          set -euo pipefail
+          git ls-files -z -- '*.yaml' ':!:.github/*' | xargs -0 pipx run cfn-lint==1.59.0 --
       - name: one handler for both deploy paths
         # The Terraform route zips lambda/index.py itself; a second copy
         # anywhere in the repo, under any name, would be a second source

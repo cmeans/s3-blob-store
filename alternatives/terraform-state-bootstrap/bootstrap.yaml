@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   A shared Terraform state bucket for this account and region.
-  Creates ONLY the S3 bucket that holds Terraform state, for any
+  Creates ONLY the S3 bucket that holds Terraform state (and its
+  TLS-only bucket policy), for any
   number of Terraform projects, each under its own state key.
   Deploy it once per account and region; skip it if you already
   have a state bucket. It creates none of a project's resources.
