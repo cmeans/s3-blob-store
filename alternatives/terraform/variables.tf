@@ -38,7 +38,7 @@ variable "name_suffix" {
 
   # The same pattern as the template's NameSuffix parameter.
   validation {
-    condition     = can(regex("^$|^[a-z0-9][a-z0-9-]{0,20}[a-z0-9]$|^[a-z0-9]$", var.name_suffix))
-    error_message = "Must be empty, or 1-22 lowercase letters, digits and hyphens, starting and ending with a letter or digit."
+    condition     = can(regex("^$|^[a-z0-9][a-z0-9-]{0,19}[a-z0-9]$|^[a-z0-9]$", var.name_suffix))
+    error_message = "Must be empty, or 1-21 lowercase letters, digits and hyphens, starting and ending with a letter or digit."
   }
 }

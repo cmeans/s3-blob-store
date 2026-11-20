@@ -34,10 +34,14 @@ ROUTE_RE = re.compile(r"^/blobs/([^/]+)$")
 
 def _authorized(event):
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
+    # The auth scheme is case-insensitive (RFC 7235): "bearer" works.
     auth = headers.get("authorization", "")
-    if not auth.startswith("Bearer "):
+    if not isinstance(auth, str):
         return False
-    digest = hashlib.sha256(auth[len("Bearer "):].encode()).hexdigest()
+    scheme, _, token = auth.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return False
+    digest = hashlib.sha256(token.encode("utf-8", "surrogatepass")).hexdigest()
     return hmac.compare_digest(digest, TOKEN_SHA256)
 
 
@@ -85,11 +89,18 @@ def handler(event, _context):
     if method == "PUT":
         body = event.get("body") or ""
         if event.get("isBase64Encoded"):
-            body = base64.b64decode(body).decode("utf-8")
+            try:
+                body = base64.b64decode(body, validate=True).decode("utf-8")
+            except ValueError:  # bad base64 or non-UTF-8 bytes
+                return _reply(400, "body must be UTF-8 text")
+        try:
+            data = body.encode("utf-8")
+        except UnicodeEncodeError:  # e.g. a lone surrogate in a text body
+            return _reply(400, "body must be UTF-8 text")
         s3.put_object(
             Bucket=BUCKET,
             Key=key,
-            Body=body.encode("utf-8"),
+            Body=data,
             ContentType="text/plain",
         )
         return _reply(200, "stored")
