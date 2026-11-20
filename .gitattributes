@@ -1,7 +1,7 @@
 # LF in the repository and on checkout, on every platform, for the files
 # whose bytes matter: template.yaml is hash-matched against the release asset
 # (#7) and checked byte for byte by build_template.py --check; the handler is
-# inlined into it and compared with Terraform's copy; the scripts are run
+# inlined into it and zipped by the Terraform route; the scripts are run
 # directly (a CRLF shebang line breaks them).
 template.yaml text eol=lf
 template.skeleton.yaml text eol=lf

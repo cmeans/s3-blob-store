@@ -1,4 +1,4 @@
-# Inputs for the S3 blob-store test.
+# Inputs for the s3-blob-store Terraform route.
 #
 # bearer_token_sha256 is the SHA-256 hex digest of the bearer token
 # that guards the Lambda Function URL. Only the digest is ever
@@ -25,8 +25,20 @@ variable "bearer_token_sha256" {
   }
 }
 
+variable "region" {
+  description = "AWS region for the store's resources."
+  type        = string
+  default     = "us-east-2"
+}
+
 variable "name_suffix" {
-  description = "Optional suffix appended to the derived blob bucket name, for a second instance in the same account. Leave empty normally."
+  description = "Optional suffix appended to the derived blob bucket name only. Leave empty normally. It does not make a second Terraform store possible in the same account: the IAM role name is fixed and account-wide."
   type        = string
   default     = ""
+
+  # The same pattern as the template's NameSuffix parameter.
+  validation {
+    condition     = can(regex("^$|^[a-z0-9][a-z0-9-]{0,20}[a-z0-9]$|^[a-z0-9]$", var.name_suffix))
+    error_message = "Must be empty, or 1-22 lowercase letters, digits and hyphens, starting and ending with a letter or digit."
+  }
 }

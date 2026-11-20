@@ -50,11 +50,39 @@ jobs:
       - name: build tool tests
         run: python3 -m unittest discover -s tests -v
       - name: cfn-lint
-        run: pipx run cfn-lint==1.59.0 template.yaml
+        # Every tracked CloudFormation template (every .yaml outside
+        # .github/): the store, its skeleton, and the shared Terraform
+        # state bucket, so a new template is linted without a list to keep.
+        run: |
+          set -euo pipefail
+          git ls-files -z -- '*.yaml' ':!:.github/*' | xargs -0 pipx run cfn-lint==1.59.0 --
       - name: one handler for both deploy paths
-        # Until the Terraform route moves under alternates/ and reads
-        # lambda/index.py directly (#6), its copy must stay identical.
-        run: cmp lambda/index.py terraform/lambda/index.py
+        # The Terraform route zips lambda/index.py itself; a second copy
+        # anywhere in the repo, under any name, would be a second source
+        # that can drift. Copies are found by content (git blob id), and a
+        # failing git command fails the step.
+        run: |
+          set -euo pipefail
+          id=$(git rev-parse :lambda/index.py)
+          listing=$(git ls-files -s)
+          # Fields are "mode id stage<TAB>path", so split on the tab first:
+          # a path may contain spaces.
+          copies=$(awk -F'\t' -v id="$id" '{ split($1, f, " ") } f[2] == id && $2 != "lambda/index.py" { print $2 }' <<<"$listing")
+          if [ -n "$copies" ]; then
+            echo "a second copy of lambda/index.py is tracked: $copies"
+            exit 1
+          fi
+          # An attribute line, not a comment, with any spacing fmt gives it.
+          # shellcheck disable=SC2016 # a literal Terraform expression, not a shell one
+          grep -qE '^[[:space:]]*source_file[[:space:]]*=[[:space:]]*"\$\{path\.module\}/\.\./\.\./lambda/index\.py"' alternatives/terraform/main.tf ||
+            { echo "alternatives/terraform/main.tf no longer zips lambda/index.py"; exit 1; }
+          # And that zip is the Lambda's only code: one archive_file, and the
+          # function's filename is its output. (A drifted, edited copy of the
+          # handler can't be caught by content; this catches it being used.)
+          n=$(grep -cE '^[[:space:]]*data[[:space:]]+"archive_file"' alternatives/terraform/main.tf || true)
+          [ "$n" = 1 ] || { echo "alternatives/terraform/main.tf has $n archive_file blocks, expected 1"; exit 1; }
+          grep -qE '^[[:space:]]*filename[[:space:]]*=[[:space:]]*data\.archive_file\.lambda\.output_path' alternatives/terraform/main.tf ||
+            { echo "the Lambda's filename isn't data.archive_file.lambda.output_path"; exit 1; }
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff
       - name: terraform validate

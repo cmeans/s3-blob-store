@@ -1,9 +1,11 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Bootstrap for the muse-field-kit S3 blob-store test.
-  Creates ONLY the S3 bucket that will hold Terraform state.
-  The blob bucket, Lambda function, and IAM role are managed by
-  Terraform afterwards and are NOT created by this stack.
+  A shared Terraform state bucket for this account and region.
+  Creates ONLY the S3 bucket that holds Terraform state (and its
+  TLS-only bucket policy), for any
+  number of Terraform projects, each under its own state key.
+  Deploy it once per account and region; skip it if you already
+  have a state bucket. It creates none of a project's resources.
   The state bucket is retained if this stack is deleted.
 
 Parameters:
@@ -56,8 +58,6 @@ Resources:
       Tags:
         - Key: Purpose
           Value: terraform-state
-        - Key: Project
-          Value: muse-field-kit-handoff-blob-store-test
 
   TerraformStateBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -78,11 +78,11 @@ Resources:
 
 Outputs:
   StateBucketName:
-    Description: Put this exact value in terraform/backend.tf as "bucket".
+    Description: Pass to terraform init as -backend-config="bucket=<this value>".
     Value: !Ref TerraformStateBucket
   StateBucketArn:
     Description: ARN of the Terraform state bucket.
     Value: !GetAtt TerraformStateBucket.Arn
   Region:
-    Description: Put this exact value in terraform/backend.tf as "region".
+    Description: Pass to terraform init as -backend-config="region=<this value>".
     Value: !Ref AWS::Region
