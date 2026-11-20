@@ -17,9 +17,9 @@ concurrency:
 jobs:
   # NOTE: pr-labels.yml and pr-labels-ci.yml find this workflow by its name
   # ("CI") and file (ci.yml). If either is renamed, update them too.
-  # This job's name ("checks") is meant to be a required check in main's
-  # ruleset: if it is renamed, update the ruleset, or every PR waits on a
-  # check that never comes.
+  # main's ruleset is meant to require "ci-ok" (below), not this job: if
+  # ci-ok is renamed, update the ruleset, or every PR waits on a check that
+  # never comes.
   checks:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -44,11 +44,31 @@ jobs:
       - name: terraform validate
         # -backend=false: CI has no AWS credentials and needs none; validate
         # checks the configuration, not any deployed state.
+        # NUL-separated end to end, so a directory name with a space, a quote
+        # or a non-ASCII character reaches terraform intact.
         run: |
           set -euo pipefail
-          while IFS= read -r dir; do
+          while IFS= read -r -d '' dir; do
             echo "::group::validate $dir"
             terraform -chdir="$dir" init -backend=false -input=false -no-color
             terraform -chdir="$dir" validate -no-color
             echo "::endgroup::"
-          done < <(git ls-files -- '*.tf' | xargs -n1 dirname | sort -u)
+          done < <(git ls-files -z -- '*.tf' | xargs -0 --no-run-if-empty dirname -z | sort -zu)
+
+  # The one check main's ruleset should require. A required job that is
+  # skipped counts as passing, so every job above is gathered here, and this
+  # one runs always and fails unless each of them succeeded. A new job must be
+  # added to `needs`, or it gates nothing.
+  ci-ok:
+    if: always()
+    needs: [checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every CI job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'length > 0 and all(.[]; .result == "success")' > /dev/null
