@@ -203,6 +203,20 @@ class BuildTemplateTest(unittest.TestCase):
         self.assertNotIn("/blobs/*", skeleton)
         self.assertNotIn('BLOB_PREFIX: "', skeleton)
 
+    def test_both_routes_share_the_suffix_rule_and_runtime(self):
+        # The template and the Terraform route are kept equal by hand;
+        # this catches either one changing alone.
+        import re
+        skeleton = (REPO / "template.skeleton.yaml").read_text(encoding="utf-8")
+        tf_vars = (REPO / "alternatives" / "terraform" / "variables.tf").read_text(encoding="utf-8")
+        tf_main = (REPO / "alternatives" / "terraform" / "main.tf").read_text(encoding="utf-8")
+        cfn_pattern = re.search(r'NameSuffix:.*?AllowedPattern: "([^"]+)"', skeleton, re.S).group(1)
+        tf_pattern = re.search(r'regex\("([^"]+)", var\.name_suffix\)', tf_vars).group(1)
+        self.assertEqual(cfn_pattern, tf_pattern)
+        cfn_runtime = re.search(r"Runtime: (\S+)", skeleton).group(1)
+        tf_runtime = re.search(r'runtime\s*=\s*"([^"]+)"', tf_main).group(1)
+        self.assertEqual(cfn_runtime, tf_runtime)
+
     def test_handler_marker_must_appear_exactly_once(self):
         skeleton = self.tmp / "template.skeleton.yaml"
         text = (REPO / "template.skeleton.yaml").read_text(encoding="utf-8")

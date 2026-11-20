@@ -127,8 +127,20 @@ class HandlerTest(unittest.TestCase):
 
     def test_body_that_is_not_base64_is_a_400(self):
         auth = f"Bearer {TOKEN}"
-        self.assertEqual(self.call("PUT", "/blobs/c", auth, body="not base64!", b64=True), (400, "body must be UTF-8 text"))
-        self.assertNotIn("blobs/c", self.s3.objects)
+        # "aGk=!!!" and a body with a newline decode without validate=True,
+        # so these pin the strict decode; the last is non-ASCII text.
+        for body in ("not base64!", "aGk=!!!", "aGVs\nbG8=", "caf" + chr(0xE9)):
+            with self.subTest(body=body):
+                self.assertEqual(self.call("PUT", "/blobs/c", auth, body=body, b64=True), (400, "body must be UTF-8 text"))
+                self.assertNotIn("blobs/c", self.s3.objects)
+
+    def test_odd_authorization_values_are_refused_not_crashed(self):
+        for auth in (1, None, "Bearer " + chr(0xD800)):
+            with self.subTest(auth=repr(auth)):
+                event = _event("GET", "/", None)
+                event["headers"] = {"Authorization": auth}
+                r = self.mod.handler(event, None)
+                self.assertEqual((r["statusCode"], r["body"]), (401, "unauthorized"))
 
     def test_label_and_route_rules(self):
         auth = f"Bearer {TOKEN}"
