@@ -1,8 +1,9 @@
-# The S3 blob-store test: one private bucket holding ciphertext
-# blobs, fronted by a Lambda Function URL that checks a bearer
-# token. The Lambda never decrypts; it stores and returns opaque
-# text by label. See ../README.md for the design and STORE-TEST.md
-# (in the encrypted-credential-handoff tool) for how this is scored.
+# The s3-blob-store Terraform route: one private bucket holding
+# ciphertext blobs, fronted by a Lambda Function URL that checks a
+# bearer token. The Lambda never decrypts; it stores and returns
+# opaque text by label. The same resources as ../../template.yaml;
+# see README.md here for the steps, ../../README.md for the design,
+# and ../../SCORECARD.md for the STORE-TEST results.
 #
 # The backend and provider are configured in backend.tf.
 
@@ -132,9 +133,11 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
 # never touches S3.
 # ------------------------------------------------------------------
 
+# The handler is the repo's one copy, lambda/index.py, the same file
+# the CloudFormation template inlines, so the two routes can't drift.
 data "archive_file" "lambda" {
   type        = "zip"
-  source_dir  = "${path.module}/lambda"
+  source_file = "${path.module}/../../lambda/index.py"
   output_path = "${path.module}/.terraform/lambda.zip"
 }
 

@@ -52,9 +52,18 @@ jobs:
       - name: cfn-lint
         run: pipx run cfn-lint==1.59.0 template.yaml
       - name: one handler for both deploy paths
-        # Until the Terraform route moves under alternates/ and reads
-        # lambda/index.py directly (#6), its copy must stay identical.
-        run: cmp lambda/index.py terraform/lambda/index.py
+        # The Terraform route zips lambda/index.py itself; a second copy
+        # anywhere in the repo would be a second source that can drift.
+        run: |
+          set -euo pipefail
+          copies=$(git ls-files -- '*index.py' | grep -vx 'lambda/index.py' || true)
+          if [ -n "$copies" ]; then
+            echo "a second handler copy is tracked: $copies"
+            exit 1
+          fi
+          # shellcheck disable=SC2016 # a literal Terraform expression, not a shell one
+          grep -qF 'source_file = "${path.module}/../../lambda/index.py"' alternates/terraform/main.tf ||
+            { echo "alternates/terraform/main.tf no longer zips lambda/index.py"; exit 1; }
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff
       - name: terraform validate

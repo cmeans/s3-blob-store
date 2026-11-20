@@ -33,91 +33,25 @@ never touches.
 
 ## Layout
 
-- `bootstrap/bootstrap.yaml` — a small CloudFormation stack that
-  creates only the Terraform state bucket. It has to exist before
-  Terraform can run, so it is the one piece Terraform does not
-  manage. Bucket names are derived from your account ID and region,
-  so they do not collide with anyone else's.
-- `terraform/` — everything else: the blob bucket, the Lambda, its
-  scoped role, and the Function URL.
-  - `backend.tf` — S3 backend with native state locking
-    (Terraform 1.11 or later). State is never committed to git.
-  - `main.tf` — the resources.
-  - `lambda/index.py` — the front-door handler. Bearer check, then
-    GET / PUT / DELETE of `blobs/<label>`, plus a `GET /` health
-    route that answers 200 to authorized callers.
-  - `variables.tf` — the token digest input (see below) and an
-    optional bucket name suffix.
-  - `outputs.tf` — bucket name, function URL, role ARN. None are
-    secrets.
-- `SCORECARD.md` — the full STORE-TEST result from the first live
-  deployment, including the caveats and the two AWS behaviours that
+- `template.yaml`: the CloudFormation deployment (the bucket and its
+  policy, the Lambda, its scoped role, and the Function URL),
+  generated from `template.skeleton.yaml` and `lambda/index.py` by
+  `tools/build_template.py`. Don't edit it directly.
+- `lambda/index.py`: the front-door handler, the one copy both deploy
+  routes use. Bearer check, then GET / PUT / DELETE of
+  `blobs/<label>`, plus a `GET /` health route that answers 200 to
+  authorized callers.
+- `alternates/terraform/`: the same resources deployed with
+  Terraform, with its own bootstrap stack for the state bucket and
+  its own README.
+- `SCORECARD.md`: the full STORE-TEST result from the first live
+  deployment, including the caveats and the two AWS behaviors that
   bit us on the way.
-
-## Two buckets, opposite versioning
-
-| Bucket | Versioning | Why |
-| --- | --- | --- |
-| Terraform state bucket (bootstrap) | **On** | Old state versions are the recovery path if a write goes bad. |
-| Blob bucket (Terraform) | **Off** | A replaced or deleted blob must actually be gone through the API. |
-
-State is not stored in the blob bucket, and not through the blob
-store. That would be circular, and state needs locking and signed
-AWS writes, which is a different job from storing ciphertext by
-label.
 
 ## Deploy
 
-You need an AWS account, the AWS CLI configured with your own
-credentials, and Terraform 1.11 or later. Your credentials stay on
-your machine; nothing in this repo needs them at runtime.
-
-1. **Bootstrap the state bucket.** In the CloudFormation console,
-   create a stack from `bootstrap/bootstrap.yaml`. No parameters are
-   needed. Note the `StateBucketName` and `Region` outputs.
-2. **Point Terraform at it.** Put those two values in
-   `terraform/backend.tf` (`bucket` and `region`), then:
-
-   ```
-   terraform init
-   ```
-
-3. **Generate the bearer token.** Keep the plaintext somewhere safe
-   (a password manager). Only its digest goes to Terraform:
-
-   ```
-   TOKEN=$(openssl rand -hex 32)
-   export TF_VAR_bearer_token_sha256=$(printf %s "$TOKEN" | sha256sum | cut -d' ' -f1)
-   ```
-
-4. **Apply.**
-
-   ```
-   terraform plan
-   terraform apply
-   ```
-
-   The plan is 12 resources: the bucket and its configuration, the
-   role and its policies, the Lambda, its Function URL, and the two
-   Function URL permissions (see the caveats for why there are two).
-
-5. **Check the endpoint.** With `URL` set to the `function_url`
-   output:
-
-   ```
-   curl -s -o /dev/null -w "%{http_code}\n" "$URL"blobs/test
-   curl -s -X PUT -H "Authorization: Bearer $TOKEN" --data-binary "dummy" "$URL"blobs/test
-   curl -s -H "Authorization: Bearer $TOKEN" "$URL"blobs/test
-   curl -s -X DELETE -H "Authorization: Bearer $TOKEN" "$URL"blobs/test
-   curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $TOKEN" "$URL"blobs/test
-   ```
-
-   Expected, in order: `401`, `stored`, `dummy`, `deleted`, `404`.
-
-6. **Give your agent the token** through whatever secure credential
-   mechanism your agent platform provides, scoped to the function
-   URL's host, as a bearer header. Never put the token in a file,
-   a template, or a chat.
+The Terraform route's steps are in
+[`alternates/terraform/README.md`](alternates/terraform/README.md).
 
 ## Caveats, honestly
 
@@ -139,6 +73,6 @@ your machine; nothing in this repo needs them at runtime.
 - **Cost** at handoff scale is effectively zero: a handful of small
   S3 objects and a rarely-invoked Lambda.
 
-## Licence
+## License
 
 MIT. See `LICENSE`.

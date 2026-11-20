@@ -1,14 +1,16 @@
-# Terraform backend for the muse-field-kit S3 blob-store test.
+# Terraform backend and provider for the s3-blob-store Terraform route.
 #
-# This file points Terraform at the state bucket created by
-# ../bootstrap/bootstrap.yaml. It contains no secrets.
+# State goes in the bucket created by bootstrap/bootstrap.yaml. The
+# bucket and region are left out on purpose (a partial backend
+# configuration), so this file needs no edits: pass them to init from
+# the bootstrap stack's outputs:
 #
-# Before running `terraform init`:
-#   1. Replace "bucket" with the StateBucketName output of the
-#      bootstrap stack (the name you chose, not a guess).
-#   2. Replace "region" if you deployed the bootstrap stack in a
-#      region other than us-east-2.
-#   3. Use Terraform 1.11 or later (required for use_lockfile).
+#   terraform init \
+#     -backend-config="bucket=<StateBucketName output>" \
+#     -backend-config="region=<Region output>"
+#
+# It contains no secrets. Terraform 1.11 or later is required (for
+# use_lockfile).
 
 terraform {
   required_version = ">= 1.11.0"
@@ -21,18 +23,11 @@ terraform {
   }
 
   backend "s3" {
-    # Must match the bootstrap stack's StateBucketName output exactly.
-    # With the bootstrap's default naming that output is
-    # tfstate-<your AWS account id>-us-east-2 (S3 names are global,
-    # so the account id is what keeps it collision-free).
-    bucket = "tfstate-223988092080-us-east-2"
+    # bucket and region: from -backend-config at init (see above).
 
     # State object path inside that bucket. One key per project/stack,
     # so other Terraform projects can share the bucket without colliding.
-    key = "muse-field-kit/handoff-blob-store/terraform.tfstate"
-
-    # Must match the region the bootstrap stack was deployed in.
-    region = "us-east-2"
+    key = "s3-blob-store/terraform.tfstate"
 
     # Encrypt the state object at rest.
     encrypt = true
@@ -44,8 +39,8 @@ terraform {
   }
 }
 
-# The provider region should match the backend region unless a
-# resource in main.tf says otherwise.
+# The region the store's resources are created in. It needn't match the
+# state bucket's region.
 provider "aws" {
-  region = "us-east-2"
+  region = var.region
 }

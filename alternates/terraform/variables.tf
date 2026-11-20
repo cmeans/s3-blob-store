@@ -1,4 +1,4 @@
-# Inputs for the S3 blob-store test.
+# Inputs for the s3-blob-store Terraform route.
 #
 # bearer_token_sha256 is the SHA-256 hex digest of the bearer token
 # that guards the Lambda Function URL. Only the digest is ever
@@ -23,6 +23,12 @@ variable "bearer_token_sha256" {
     condition     = can(regex("^[0-9a-f]{64}$", var.bearer_token_sha256))
     error_message = "Must be a lowercase SHA-256 hex digest (64 characters)."
   }
+}
+
+variable "region" {
+  description = "AWS region for the store's resources."
+  type        = string
+  default     = "us-east-2"
 }
 
 variable "name_suffix" {
