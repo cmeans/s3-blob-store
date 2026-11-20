@@ -74,8 +74,10 @@ and any method gets 401 before anything else is checked.
 Errors: 401 `unauthorized` (missing or wrong token), 404
 `not found` (no blob at the label, or no such route), 405
 `method not allowed`, 400 `invalid label` (label fails
-validation), 400 `body must be UTF-8 text` (a body that isn't
-UTF-8).
+validation), 400 `body must be UTF-8 text` (a body the Function
+URL hands over base64-encoded that isn't valid base64 or UTF-8).
+How a non-UTF-8 body sent as `text/*` arrives hasn't been tested
+yet: send UTF-8 text, as Bodies below says.
 
 **Labels:** letters, digits, dot, dash, underscore, starting
 with a letter or digit; at most 128 characters. Colons and slashes are not allowed — if your
