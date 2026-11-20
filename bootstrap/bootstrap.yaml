@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Bootstrap for the muse-field-kit S3 blob-store test.
+  Creates ONLY the S3 bucket that will hold Terraform state.
+  The blob bucket, Lambda function, and IAM role are managed by
+  Terraform afterwards and are NOT created by this stack.
+  The state bucket is retained if this stack is deleted.
+
+Parameters:
+  StateBucketName:
+    Type: String
+    Default: ""
+    Description: >-
+      OPTIONAL override. Leave empty (the default) and the bucket is
+      named tfstate-<your AWS account id>-<region>: S3 bucket names
+      are global across all of AWS, and an account id suffix makes a
+      collision with another account's bucket effectively impossible.
+      Set this only if your own naming rules require a different name.
+    AllowedPattern: "^$|^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    ConstraintDescription: Must be empty, or a valid S3 bucket name.
+
+Conditions:
+  UseDefaultBucketName: !Equals
+    - !Ref StateBucketName
+    - ""
+
+Resources:
+  TerraformStateBucket:
+    Type: AWS::S3::Bucket
+    # Retain on purpose: deleting the bootstrap stack must not
+    # delete the state that describes everything Terraform manages.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If
+        - UseDefaultBucketName
+        - !Sub "tfstate-${AWS::AccountId}-${AWS::Region}"
+        - !Ref StateBucketName
+      # ON for state (the opposite of the blob bucket):
+      # old state versions are your recovery path.
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      Tags:
+        - Key: Purpose
+          Value: terraform-state
+        - Key: Project
+          Value: muse-field-kit-handoff-blob-store-test
+
+  TerraformStateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TerraformStateBucket
+      PolicyDocument:
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt TerraformStateBucket.Arn
+              - !Sub "${TerraformStateBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+Outputs:
+  StateBucketName:
+    Description: Put this exact value in terraform/backend.tf as "bucket".
+    Value: !Ref TerraformStateBucket
+  StateBucketArn:
+    Description: ARN of the Terraform state bucket.
+    Value: !GetAtt TerraformStateBucket.Arn
+  Region:
+    Description: Put this exact value in terraform/backend.tf as "region".
+    Value: !Ref AWS::Region

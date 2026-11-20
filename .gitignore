@@ -1,0 +1,21 @@
+# Terraform state must NEVER be committed.
+# State is plaintext and git history keeps it after deletion.
+*.tfstate
+*.tfstate.*
+*.tflock
+
+# Local Terraform working directories and plans
+.terraform/
+*.tfplan
+
+# Local variable files may contain secrets
+*.tfvars
+!*.tfvars.example
+
+# Crash logs
+crash.log
+crash.*.log
+
+# AWS / credential material
+*.pem
+.env
