@@ -120,6 +120,72 @@ class BuildTemplateTest(unittest.TestCase):
                 r = self.run_tool()
                 self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_noncharacters_are_refused(self):
+        handler = self.tmp / "lambda" / "index.py"
+        text = (REPO / "lambda" / "index.py").read_text(encoding="utf-8")
+        for code in (0xFFFE, 0xFFFF):
+            with self.subTest(code=f"U+{code:04X}"):
+                handler.write_text(f"# {chr(code)}\n" + text, encoding="utf-8", newline="")
+                r = self.run_tool()
+                self.assertEqual(r.returncode, 1)
+                self.assertIn(f"line 1 has U+{code:04X}", r.stderr)
+
+    def test_skeleton_line_breaks_are_refused(self):
+        # str.splitlines would turn these into real line breaks, so text after
+        # one in a comment would become live YAML.
+        skeleton = self.tmp / "template.skeleton.yaml"
+        text = (REPO / "template.skeleton.yaml").read_text(encoding="utf-8")
+        for code in (0x2028, 0x2029, 0x85, 0x0C, 0x1D):
+            with self.subTest(code=f"U+{code:04X}"):
+                skeleton.write_text(f"# note{chr(code)}Transform: X\n" + text, encoding="utf-8")
+                r = self.run_tool()
+                self.assertEqual(r.returncode, 1)
+                self.assertIn(f"template.skeleton.yaml line 1 has U+{code:04X}", r.stderr)
+
+    def test_indented_first_handler_line_is_refused(self):
+        # YAML takes the block's indentation from its first non-empty line.
+        handler = self.tmp / "lambda" / "index.py"
+        text = (REPO / "lambda" / "index.py").read_text(encoding="utf-8")
+        for first in ("  # indented comment\n", "      \n", "\t\n"):
+            with self.subTest(first=repr(first)):
+                handler.write_text(first + text, encoding="utf-8")
+                r = self.run_tool()
+                self.assertEqual(r.returncode, 1)
+                self.assertIn("line 1 is the first non-empty line and is whitespace-only", r.stderr)
+        for first in ("\n", "\t# tab-led comment\n"):
+            with self.subTest(ok=repr(first)):
+                handler.write_text(first + text, encoding="utf-8")
+                r = self.run_tool()
+                self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_unreadable_inputs_and_outputs_fail_without_traceback(self):
+        cases = [
+            ("lambda/index.py", lambda p: p.write_bytes(b"# caf\xe9\n"), "lambda/index.py is not valid UTF-8 (byte 5: 0xe9)"),
+            ("template.skeleton.yaml", lambda p: p.write_bytes(b"# caf\xe9\n"), "template.skeleton.yaml is not valid UTF-8 (byte 5: 0xe9)"),
+            ("lambda/index.py", lambda p: (p.unlink(), p.mkdir()), "lambda/index.py is not a file"),
+        ]
+        for rel, breakit, message in cases:
+            with self.subTest(case=message):
+                self.setUp()
+                breakit(self.tmp / rel)
+                r = self.run_tool()
+                self.assertEqual(r.returncode, 1)
+                self.assertIn(message, r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
+
+    def test_unwritable_template_fails_without_traceback(self):
+        import os
+        if os.geteuid() == 0:
+            self.skipTest("root can write a read-only file")
+        out = self.tmp / "template.yaml"
+        out.write_text("stale\n", encoding="utf-8")
+        out.chmod(0o444)
+        self.addCleanup(out.chmod, 0o644)
+        r = self.run_tool()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("FAIL: can't write template.yaml", r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+
     def test_iam_grant_and_handler_use_the_same_blob_prefix(self):
         # The prefix is written twice in the skeleton (the IAM Resource and
         # BLOB_PREFIX) and once as the handler's default; nothing else ties

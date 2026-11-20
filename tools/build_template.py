@@ -44,10 +44,17 @@ def indent_of(line):
 
 
 def read_source(path, newline=None):
+    name = path.relative_to(ROOT)
+    if not path.exists():
+        raise SystemExit(f"FAIL: {name} is missing")
     if not path.is_file():
-        raise SystemExit(f"FAIL: {path.relative_to(ROOT)} is missing")
-    with path.open(encoding="utf-8", newline=newline) as f:
-        return f.read()
+        raise SystemExit(f"FAIL: {name} is not a file")
+    try:
+        with path.open(encoding="utf-8", newline=newline) as f:
+            return f.read()
+    except UnicodeDecodeError as e:
+        raise SystemExit(f"FAIL: {name} is not valid UTF-8 (byte {e.start}: "
+                         f"0x{e.object[e.start]:02x})") from None
 
 
 def generate():
@@ -67,8 +74,11 @@ def generate():
     if not handler.endswith("\n") or handler.endswith("\n\n"):
         raise SystemExit("FAIL: lambda/index.py must end with exactly one newline "
                          "(a YAML block scalar keeps one, so the two would differ)")
-    check_handler_chars(handler)
-    skeleton = read_source(SKELETON).splitlines()
+    check_chars(handler, "lambda/index.py")
+    check_handler_indent(handler)
+    skeleton_text = read_source(SKELETON)
+    check_chars(skeleton_text, "template.skeleton.yaml")
+    skeleton = skeleton_text.splitlines()
     markers = [i for i, line in enumerate(skeleton) if "@@HANDLER@@" in line]
     if len(markers) != 1:
         raise SystemExit(f"FAIL: expected exactly one @@HANDLER@@ line, found {len(markers)}")
@@ -85,23 +95,46 @@ def generate():
     return "\n".join(out) + "\n", handler, zipfile_line
 
 
-def check_handler_chars(handler):
+def check_chars(text, name):
     """Refuse characters a YAML block scalar can't carry as written.
 
     YAML forbids most control characters, and U+0085, U+2028 and U+2029 are
-    line breaks to it (and to str.splitlines), so any of them would change the
-    code CloudFormation runs or make the template invalid.
+    line breaks to it (and to str.splitlines, which this tool splits lines
+    with), so any of them would change the code CloudFormation runs, turn a
+    comment into live YAML, or make the template invalid. U+FFFE and U+FFFF
+    are noncharacters YAML refuses. (Strict UTF-8 decoding never yields a
+    surrogate, so those need no check here.)
     """
-    for lineno, line in enumerate(handler.split("\n"), 1):
+    for lineno, line in enumerate(text.split("\n"), 1):
         for ch in line:
             o = ord(ch)
-            if ch != "\t" and (o < 0x20 or 0x7F <= o <= 0x9F or ch in "\u2028\u2029"
-                               or 0xD800 <= o <= 0xDFFF or o in (0xFFFE, 0xFFFF)):
+            if ch != "\t" and (o < 0x20 or 0x7F <= o <= 0x9F
+                               or o in (0x2028, 0x2029, 0xFFFE, 0xFFFF)):
                 hint = ("use LF line endings" if ch == "\r"
-                        else "use an escape in the Python source instead")
-                raise SystemExit(f"FAIL: lambda/index.py line {lineno} has U+{o:04X}, "
+                        else "use an escape in the Python source instead"
+                        if name.endswith(".py") else "remove it")
+                raise SystemExit(f"FAIL: {name} line {lineno} has U+{o:04X}, "
                                  f"which can't go in a YAML block scalar as written; "
                                  f"{hint}")
+
+
+def check_handler_indent(handler):
+    """Refuse a handler whose first code line is indented.
+
+    YAML takes a literal block's indentation from its first non-empty line.
+    If that line has extra leading spaces (an indented comment, say), the
+    lines after it end the block and the template doesn't parse, while this
+    tool's own extractor would still see a match.
+    """
+    for lineno, line in enumerate(handler.split("\n"), 1):
+        if line == "":
+            continue
+        if line.strip() == "" or line.startswith(" "):
+            raise SystemExit(f"FAIL: lambda/index.py line {lineno} is the first "
+                             f"non-empty line and is whitespace-only or starts with "
+                             f"a space; YAML would take its indentation for the "
+                             f"whole block")
+        return
 
 
 def extract_zipfile(template_text, zipfile_line):
@@ -156,7 +189,10 @@ def main():
         return 0
     # Bytes, so the file is LF on every platform (write_text would write
     # CRLF on Windows).
-    OUTPUT.write_bytes(text.encode("utf-8"))
+    try:
+        OUTPUT.write_bytes(text.encode("utf-8"))
+    except OSError as e:
+        raise SystemExit(f"FAIL: can't write template.yaml: {e.strerror}") from None
     print(f"wrote template.yaml; {sizes}; ZipFile round-trip verified")
     return 0
 
