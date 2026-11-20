@@ -45,15 +45,18 @@ jobs:
         # -backend=false: CI has no AWS credentials and needs none; validate
         # checks the configuration, not any deployed state.
         # NUL-separated end to end, so a directory name with a space, a quote
-        # or a non-ASCII character reaches terraform intact.
+        # or a non-ASCII character reaches terraform intact. A pipe, not a
+        # process substitution: pipefail then fails the step if the path
+        # list itself fails, rather than validating nothing and passing.
         run: |
           set -euo pipefail
-          while IFS= read -r -d '' dir; do
-            echo "::group::validate $dir"
-            terraform -chdir="$dir" init -backend=false -input=false -no-color
-            terraform -chdir="$dir" validate -no-color
-            echo "::endgroup::"
-          done < <(git ls-files -z -- '*.tf' | xargs -0 --no-run-if-empty dirname -z | sort -zu)
+          git ls-files -z -- '*.tf' | xargs -0 --no-run-if-empty dirname -z | sort -zu |
+            while IFS= read -r -d '' dir; do
+              echo "::group::validate $dir"
+              terraform -chdir="$dir" init -backend=false -input=false -no-color
+              terraform -chdir="$dir" validate -no-color
+              echo "::endgroup::"
+            done
 
   # The one check main's ruleset should require. A required job that is
   # skipped counts as passing, so every job above is gathered here, and this
