@@ -159,17 +159,21 @@ end-to-end 2026-11-20.
    `/tmp/s3-blob-store-token.txt` (or, if you drive the browser,
    download it and give the user the file), save it to their
    password manager, and enter it on your platform's secure
-   registration page (SETUP.md). Keep the CloudShell file until
-   step 5 is done. Delete any downloaded copy. If your platform can only register
-   the token by reading the file, say so to the user first: the
-   token then passes through your working files, and must be
-   deleted from them once the registration is verified. Either
+   registration page (SETUP.md). If your platform can only
+   register the token by reading the file, say so to the user
+   first: the token then passes through your working files, and
+   must be deleted from them once the registration is verified.
+   Once the token is registered, delete any downloaded copy, but
+   keep the CloudShell file until step 5 is done. Either
    way, the token is never shown in the terminal or the chat.
 5. **Verify, then clean up**, in the same CloudShell session:
    set `TOKEN=$(cat /tmp/s3-blob-store-token.txt)`, run the
    endpoint sequence (Path A step 5) and the STORE-TEST below
-   with it, and only after both pass run `unset TOKEN && rm
-   /tmp/s3-blob-store-token.txt`. (Path A step 5 ends with that
+   with it. When both pass, or as soon as you stop on a failure,
+   run `unset TOKEN && rm /tmp/s3-blob-store-token.txt`. If the
+   file is already gone (the CloudShell session ended), don't
+   regenerate it or ask for the token: run the STORE-TEST through
+   the store's registered connection instead. (Path A step 5 ends with that
    cleanup; in Path B it moves to the end, because the STORE-TEST
    needs the token too.)
 6. **Optional but recommended — IAM bootstrap.** If you signed
