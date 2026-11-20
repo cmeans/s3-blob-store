@@ -69,12 +69,72 @@ class BuildTemplateTest(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("template.yaml is stale", r.stderr)
 
-    def test_generated_template_is_lf_bytes(self):
+    def test_regenerated_template_matches_committed_bytes(self):
+        # On Linux this can't catch a switch back to write_text (which writes
+        # LF here, CRLF only on Windows); no Windows CI runs it.
         r = self.run_tool()
         self.assertEqual(r.returncode, 0, r.stderr)
         data = (self.tmp / "template.yaml").read_bytes()
         self.assertNotIn(b"\r", data)
         self.assertEqual(data, (REPO / "template.yaml").read_bytes())
+
+    def test_another_inline_function_before_the_handler_builds(self):
+        skeleton = self.tmp / "template.skeleton.yaml"
+        text = (REPO / "template.skeleton.yaml").read_text(encoding="utf-8")
+        helper = ("  HelperFunction:\n"
+                  "    Type: AWS::Lambda::Function\n"
+                  "    Properties:\n"
+                  "      Code:\n"
+                  "        ZipFile: |\n"
+                  "          def handler(event, context):\n"
+                  "              return None\n")
+        self.assertIn("\nResources:\n", text)
+        skeleton.write_text(text.replace("\nResources:\n", "\nResources:\n" + helper, 1),
+                            encoding="utf-8")
+        r = self.run_tool()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("ZipFile round-trip verified", r.stdout)
+
+    def test_marker_must_follow_zipfile_line(self):
+        skeleton = self.tmp / "template.skeleton.yaml"
+        lines = (REPO / "template.skeleton.yaml").read_text(encoding="utf-8").splitlines()
+        i = next(n for n, ln in enumerate(lines) if "@@HANDLER@@" in ln)
+        lines.insert(i, lines[i].replace("@@HANDLER@@", "# comment"))
+        skeleton.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        r = self.run_tool()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("must come right after a `ZipFile: |` line", r.stderr)
+
+    def test_handler_characters_yaml_cannot_carry_are_refused(self):
+        handler = self.tmp / "lambda" / "index.py"
+        text = (REPO / "lambda" / "index.py").read_text(encoding="utf-8")
+        for ch in ("\x1b", "\x00", "\x7f", "\x85", " ", " ", "\r"):
+            with self.subTest(ch=f"U+{ord(ch):04X}"):
+                handler.write_text(f"# {ch}\n" + text, encoding="utf-8", newline="")
+                r = self.run_tool()
+                self.assertEqual(r.returncode, 1)
+                self.assertIn(f"line 1 has U+{ord(ch):04X}", r.stderr)
+        for ok in ("\t", " ", "﻿", "é"):
+            with self.subTest(ok=f"U+{ord(ok):04X}"):
+                handler.write_text(f"# {ok}\n" + text, encoding="utf-8", newline="")
+                r = self.run_tool()
+                self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_iam_grant_and_handler_use_the_same_blob_prefix(self):
+        # The prefix is written twice in the skeleton (the IAM Resource and
+        # BLOB_PREFIX) and once as the handler's default; nothing else ties
+        # them together (#11 tracks a single definition).
+        import re
+        skeleton = (REPO / "template.skeleton.yaml").read_text(encoding="utf-8")
+        handler = (REPO / "lambda" / "index.py").read_text(encoding="utf-8")
+        # The non-empty prefix: the bucket policy's "${BlobBucket.Arn}/*" is
+        # the whole bucket, not the grant.
+        resource = re.search(r'\$\{BlobBucket\.Arn\}/([^"*]+)\*', skeleton)
+        env = re.search(r'BLOB_PREFIX:\s*"?([^"\s]+)"?', skeleton)
+        default = re.search(r'BLOB_PREFIX",\s*"([^"]+)"', handler)
+        self.assertTrue(resource and env and default)
+        self.assertEqual(resource.group(1), env.group(1))
+        self.assertEqual(env.group(1), default.group(1))
 
     def test_handler_marker_must_appear_exactly_once(self):
         skeleton = self.tmp / "template.skeleton.yaml"

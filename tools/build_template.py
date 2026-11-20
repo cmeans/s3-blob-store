@@ -43,14 +43,17 @@ def indent_of(line):
     return line[: len(line) - len(line.lstrip())]
 
 
-def read_source(path):
+def read_source(path, newline=None):
     if not path.is_file():
         raise SystemExit(f"FAIL: {path.relative_to(ROOT)} is missing")
-    return path.read_text(encoding="utf-8")
+    with path.open(encoding="utf-8", newline=newline) as f:
+        return f.read()
 
 
 def generate():
-    handler = read_source(HANDLER)
+    # Read as is (no newline translation), so a CR is seen and refused below
+    # rather than silently turned into a line break.
+    handler = read_source(HANDLER, newline="")
     if len(handler) > ZIPFILE_LIMIT:
         raise SystemExit(
             f"FAIL: lambda/index.py is {len(handler)} characters, over the "
@@ -64,34 +67,58 @@ def generate():
     if not handler.endswith("\n") or handler.endswith("\n\n"):
         raise SystemExit("FAIL: lambda/index.py must end with exactly one newline "
                          "(a YAML block scalar keeps one, so the two would differ)")
-    out = []
-    replaced = 0
-    for line in read_source(SKELETON).splitlines():
-        if "@@HANDLER@@" in line:
-            pad = indent_of(line)
-            for code_line in handler.rstrip("\n").splitlines():
-                out.append(pad + code_line if code_line else "")
-            replaced += 1
-        else:
-            out.append(line)
-    if replaced != 1:
-        raise SystemExit(f"FAIL: expected exactly one @@HANDLER@@ line, found {replaced}")
-    return "\n".join(out) + "\n", handler
+    check_handler_chars(handler)
+    skeleton = read_source(SKELETON).splitlines()
+    markers = [i for i, line in enumerate(skeleton) if "@@HANDLER@@" in line]
+    if len(markers) != 1:
+        raise SystemExit(f"FAIL: expected exactly one @@HANDLER@@ line, found {len(markers)}")
+    marker = markers[0]
+    # The `ZipFile: |` line just before the marker; the round-trip check
+    # extracts from there.
+    zipfile_line = marker - 1
+    if zipfile_line < 0 or skeleton[zipfile_line].strip() != "ZipFile: |":
+        raise SystemExit("FAIL: the @@HANDLER@@ line must come right after a "
+                         "`ZipFile: |` line in template.skeleton.yaml")
+    pad = indent_of(skeleton[marker])
+    code = [pad + ln if ln else "" for ln in handler.rstrip("\n").splitlines()]
+    out = skeleton[:marker] + code + skeleton[marker + 1:]
+    return "\n".join(out) + "\n", handler, zipfile_line
 
 
-def extract_zipfile(template_text):
-    """Pull the ZipFile block scalar back out (indentation-based)."""
+def check_handler_chars(handler):
+    """Refuse characters a YAML block scalar can't carry as written.
+
+    YAML forbids most control characters, and U+0085, U+2028 and U+2029 are
+    line breaks to it (and to str.splitlines), so any of them would change the
+    code CloudFormation runs or make the template invalid.
+    """
+    for lineno, line in enumerate(handler.split("\n"), 1):
+        for ch in line:
+            o = ord(ch)
+            if ch != "\t" and (o < 0x20 or 0x7F <= o <= 0x9F or ch in "  "
+                               or 0xD800 <= o <= 0xDFFF or o in (0xFFFE, 0xFFFF)):
+                hint = ("use LF line endings" if ch == "\r"
+                        else "use an escape in the Python source instead")
+                raise SystemExit(f"FAIL: lambda/index.py line {lineno} has U+{o:04X}, "
+                                 f"which can't go in a YAML block scalar as written; "
+                                 f"{hint}")
+
+
+def extract_zipfile(template_text, zipfile_line):
+    """Pull the handler's ZipFile block scalar back out (indentation-based).
+
+    zipfile_line is the index of the `ZipFile: |` line that precedes the
+    @@HANDLER@@ marker, so another inline function elsewhere in the template
+    is never mistaken for the handler.
+    """
     lines = template_text.splitlines()
-    for i, line in enumerate(lines):
-        if line.strip() == "ZipFile: |":
-            pad = indent_of(line)
-            block = []
-            for nxt in lines[i + 1:]:
-                if nxt and indent_of(nxt) <= pad:
-                    break
-                block.append(nxt[len(pad) + 2:] if nxt else "")
-            return "\n".join(block) + "\n"
-    raise SystemExit("FAIL: no ZipFile block found in template")
+    pad = indent_of(lines[zipfile_line])
+    block = []
+    for nxt in lines[zipfile_line + 1:]:
+        if nxt and indent_of(nxt) <= pad:
+            break
+        block.append(nxt[len(pad) + 2:] if nxt else "")
+    return "\n".join(block) + "\n"
 
 
 def main():
@@ -99,8 +126,8 @@ def main():
     if unknown:
         raise SystemExit(f"FAIL: unknown argument(s): {' '.join(unknown)}; "
                          f"usage: build_template.py [--check]")
-    text, handler = generate()
-    extracted = extract_zipfile(text)
+    text, handler, zipfile_line = generate()
+    extracted = extract_zipfile(text, zipfile_line)
     if extracted != handler:
         raise SystemExit("FAIL: ZipFile block in the generated template does "
                          "not match lambda/index.py")
