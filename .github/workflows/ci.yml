@@ -36,9 +36,12 @@ jobs:
           python3 --version
           terraform version
       - name: ruff
+        # `--` before the paths: a tracked file named like an option (such as
+        # `--config=...#.py`) must be linted, not read as ruff configuration.
         run: |
-          set -o pipefail
-          git ls-files -z -- '*.py' | xargs -0 --no-run-if-empty pipx run ruff==0.15.7 check
+          set -euo pipefail
+          echo "ruff: $(git ls-files -- '*.py' | wc -l) tracked Python files"
+          git ls-files -z -- '*.py' | xargs -0 --no-run-if-empty pipx run ruff==0.15.7 check --
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff
       - name: terraform validate
@@ -47,10 +50,13 @@ jobs:
         # NUL-separated end to end, so a directory name with a space, a quote
         # or a non-ASCII character reaches terraform intact. A pipe, not a
         # process substitution: pipefail then fails the step if the path
-        # list itself fails, rather than validating nothing and passing.
+        # list itself fails, rather than validating nothing and passing. `--`
+        # keeps a directory whose name starts with `-` from reading as an
+        # option to dirname.
         run: |
           set -euo pipefail
-          git ls-files -z -- '*.tf' | xargs -0 --no-run-if-empty dirname -z | sort -zu |
+          echo "terraform validate: $(git ls-files -- '*.tf' | wc -l) tracked .tf files"
+          git ls-files -z -- '*.tf' | xargs -0 --no-run-if-empty dirname -z -- | sort -zu |
             while IFS= read -r -d '' dir; do
               echo "::group::validate $dir"
               terraform -chdir="$dir" init -backend=false -input=false -no-color
@@ -68,10 +74,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Every CI job succeeded
+      - name: Check that every CI job succeeded
         env:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
           echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          echo "$NEEDS" | jq -e 'length > 0 and all(.[]; .result == "success")' > /dev/null
+          echo "$NEEDS" | jq -e 'length > 0 and all(.[]; .result == "success")' > /dev/null ||
+            { echo "not every CI job succeeded (results above)"; exit 1; }
