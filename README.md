@@ -178,10 +178,13 @@ the one-paste below is the supported path.)
      that is normal. Note the `FunctionUrl` output;
    - if the deploy fails or you press Ctrl-C, checks the store
      before touching the token file. If the store didn't take the
-     new token, it removes the file. If it did, that's a deploy.
-     If it can't tell yet (an interrupted deploy, for example, goes
-     on on AWS's side), it keeps the file and tells you to run
-     `bash deploy.sh --check` once the stack settles.
+     new token (the same answer twice, 20 seconds apart), it
+     removes the file. If it did, that's a deploy. If it can't tell
+     yet (an interrupted deploy, for example, keeps going on AWS's
+     side), it keeps the file and tells you to run `bash deploy.sh
+     --check` once the stack has finished changing. `--check` also
+     prints the stack's outputs when the token is live, so you
+     still get the `FunctionUrl`.
 
    The token never exists in your own shell: the script runs in
    its own process. If you already run a store from the Terraform

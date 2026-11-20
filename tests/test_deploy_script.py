@@ -29,9 +29,11 @@ FAKE_AWS = r"""#!/bin/bash
 # A pretend CloudFormation and Lambda. State: $FAKE_DIR/status ("none" = no
 # stack) and $FAKE_DIR/digest (the function's BEARER_TOKEN_SHA256).
 # FAKE_DESCRIBE=error fails every describe-stacks; =after fails it once a
-# deploy has run. FAKE_LAMBDA=error fails the function read. FAKE_DEPLOY
-# picks what deploy does.
+# deploy has run. FAKE_LAMBDA=error fails the function read. FAKE_WARN=1
+# adds a warning on stderr to every call. FAKE_DEPLOY picks what deploy
+# does. The function is found only by the template's own names.
 printf '%s\n' "$*" >> "$FAKE_DIR/log"
+[ -n "${FAKE_WARN:-}" ] && echo "WARNING: a newer CLI is available" >&2
 status=$(cat "$FAKE_DIR/status")
 new=$(printf '%s\n' "$@" | sed -n 's/^BearerTokenSha256=//p')
 case "$1 $2" in
@@ -39,20 +41,27 @@ case "$1 $2" in
     if [ "${FAKE_DESCRIBE:-}" = error ] || { [ "${FAKE_DESCRIBE:-}" = after ] && [ -e "$FAKE_DIR/deployed" ]; }; then
       echo "An error occurred (Throttling) when calling the DescribeStacks operation: Rate exceeded" >&2; exit 254
     fi
+    [ "${FAKE_DESCRIBE:-}" = empty ] && exit 0
     if [ "$status" = none ]; then
       echo "An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id x does not exist" >&2; exit 254
     fi
     case "$*" in
-      *StackStatus*) echo "$status" ;;
+      *StackStatus*)
+        echo "$status"
+        # late-execute: the update shows only after the first read.
+        if [ -e "$FAKE_DIR/late" ]; then rm "$FAKE_DIR/late"; echo UPDATE_IN_PROGRESS > "$FAKE_DIR/status"; fi ;;
       *Outputs*) echo "OUTPUTS-TABLE" ;;
     esac
     exit 0 ;;
   "cloudformation describe-stack-resource")
     [ "$status" = none ] && exit 254
+    case "$*" in *"--logical-resource-id BlobFunction "*) ;; *) echo "no such resource" >&2; exit 254 ;; esac
     echo "fake-function"; exit 0 ;;
   "lambda get-function-configuration")
     [ "${FAKE_LAMBDA:-}" = error ] && { echo "AccessDenied" >&2; exit 254; }
-    cat "$FAKE_DIR/digest"; exit 0 ;;
+    [ "${FAKE_LAMBDA:-}" = none ] && { echo None; exit 0; }
+    case "$*" in *"--function-name fake-function "*"Environment.Variables.BEARER_TOKEN_SHA256 "*) cat "$FAKE_DIR/digest" ;; *) echo None ;; esac
+    exit 0 ;;
   "cloudformation deploy")
     touch "$FAKE_DIR/deployed"
     case "${FAKE_DEPLOY:-ok}" in
@@ -60,6 +69,7 @@ case "$1 $2" in
         if [ "$status" = none ] || [ "$status" = REVIEW_IN_PROGRESS ]; then echo CREATE_COMPLETE; else echo UPDATE_COMPLETE; fi > "$FAKE_DIR/status"
         echo "$new" > "$FAKE_DIR/digest"; exit 0 ;;
       fail-early) exit 255 ;;
+      late-execute) touch "$FAKE_DIR/late"; exit 255 ;;
       changeset-failed) echo REVIEW_IN_PROGRESS > "$FAKE_DIR/status"; exit 255 ;;
       fail-create) echo "${FAKE_CREATE_END:-ROLLBACK_COMPLETE}" > "$FAKE_DIR/status"; exit 255 ;;
       fail-update) echo UPDATE_ROLLBACK_COMPLETE > "$FAKE_DIR/status"; exit 255 ;;
@@ -101,7 +111,7 @@ class Base(unittest.TestCase):
 
     def env(self, **extra):
         full = {"PATH": f"{self.dir / 'bin'}:{os.environ['PATH']}", "HOME": str(self.dir),
-                "FAKE_DIR": str(self.dir)}
+                "FAKE_DIR": str(self.dir), "DEPLOY_SH_SETTLE_SECONDS": "0"}
         full.update(extra)
         return full
 
@@ -148,6 +158,13 @@ class DeployTest(Base):
         self.assertEqual(self.deploys(log), [])
         self.assertFalse(self.token_file.exists())
 
+    def test_empty_status_reply_stops(self):
+        self.set_stack("UPDATE_COMPLETE")
+        r, log = self.run_script("--rotate", FAKE_DESCRIBE="empty")
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("couldn't read the state", r.stdout)
+        self.assertEqual(self.deploys(log), [])
+
     def test_existing_stack_stops_without_rotate_and_names_the_right_command(self):
         for env in ({}, {"ROTATE": "1"}):
             with self.subTest(env=env):
@@ -176,13 +193,33 @@ class DeployTest(Base):
         self.assertEqual(log, "")
 
     def test_rotate(self):
-        self.set_stack("CREATE_COMPLETE")
-        r, log = self.run_script("--rotate")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for status in ("CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE",
+                       "IMPORT_COMPLETE", "IMPORT_ROLLBACK_COMPLETE"):
+            with self.subTest(status=status):
+                self.set_stack(status)
+                self.token_file.unlink(missing_ok=True)
+                r, log = self.run_script("--rotate")
+                self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+                self.assertIn("Rotated.", r.stdout)
+                self.assertIn("no longer works", r.stdout)
+                self.assertEqual(len(self.deploys(log)), 1)
+                self.assert_token_file()
+
+    def test_cli_warning_on_stderr_is_not_a_status(self):
+        self.set_stack("UPDATE_COMPLETE")
+        r, _ = self.run_script("--rotate", FAKE_WARN="1")
+        self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("Rotated.", r.stdout)
-        self.assertIn("no longer works", r.stdout)
-        self.assertEqual(len(self.deploys(log)), 1)
-        self.assert_token_file()
+
+    def test_empty_or_repeated_suffix_stops(self):
+        self.set_stack("UPDATE_COMPLETE")
+        for args, text in ((["--suffix", ""], "needs a value"),
+                           (["--suffix", "a", "--suffix", "b"], "once")):
+            with self.subTest(args=args):
+                r, log = self.run_script("--rotate", *args, suffix=False)
+                self.assertEqual(r.returncode, 3)
+                self.assertIn(text, r.stdout)
+                self.assertEqual(log, "")
 
     def test_rotate_with_no_store_stops(self):
         for status in ("none", "REVIEW_IN_PROGRESS"):
@@ -220,13 +257,23 @@ class DeployTest(Base):
         self.assertEqual(self.token(), "unsaved")
         self.assertEqual(self.deploys(log), [])
 
-    def test_dangling_symlink_at_the_token_path_stops(self):
+    def test_link_or_directory_at_the_token_path_stops(self):
         target = self.dir / "elsewhere"
         self.token_file.symlink_to(target)
         r, log = self.run_script()
         self.assertEqual(r.returncode, 3)
+        self.assertIn("isn't a regular file", r.stdout)
         self.assertFalse(target.exists())
         self.assertEqual(self.deploys(log), [])
+        r, _ = self.run_script("--check")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("isn't a regular file", r.stdout)
+        self.token_file.unlink()
+        self.token_file.mkdir()
+        self.addCleanup(lambda: self.token_file.is_dir() and self.token_file.rmdir())
+        r, log = self.run_script()
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("isn't a regular file", r.stdout)
 
     def test_bad_options_suffix_and_missing_template_stop(self):
         for args, text in ((["--bogus"], "unknown option"), (["--suffix"], "needs a value")):
@@ -283,7 +330,8 @@ class FailedDeployTest(Base):
     def test_unknown_outcome_keeps_the_file_and_never_says_it_is_live(self):
         cases = (("interrupted", {}),
                  ("fail-early", {"FAKE_DESCRIBE": "after"}),
-                 ("fail-early", {"FAKE_LAMBDA": "error"}))
+                 ("fail-early", {"FAKE_LAMBDA": "error"}),
+                 ("fail-early", {"FAKE_LAMBDA": "none"}))
         for mode, env in cases:
             with self.subTest(mode=mode, env=env):
                 self.set_stack("UPDATE_COMPLETE")
@@ -294,6 +342,14 @@ class FailedDeployTest(Base):
                 self.assertIn(f"bash deploy.sh --suffix {self.suffix} --check", r.stdout)
                 self.assertNotIn("save it", r.stdout.lower().replace("(save it)", ""))
                 self.assert_token_file()
+
+    def test_update_that_shows_late_keeps_the_file(self):
+        self.set_stack("UPDATE_COMPLETE")
+        r, _ = self.run_script("--rotate", FAKE_DEPLOY="late-execute")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("changed while the script waited", r.stdout)
+        self.assertIn("KEPT", r.stdout)
+        self.assert_token_file()
 
     def test_unreadable_state_after_a_failed_first_deploy_keeps_the_file(self):
         r, _ = self.run_script(FAKE_DEPLOY="fail-early", FAKE_DESCRIBE="after")
@@ -334,11 +390,18 @@ class CheckTest(Base):
         r, log = self.run_script("--check")
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("LIVE", r.stdout)
+        self.assertIn("OUTPUTS-TABLE", r.stdout)
         self.assertEqual(self.deploys(log), [])
+
+    def test_live_on_a_stack_that_needs_repair(self):
+        self.set_stack("UPDATE_ROLLBACK_FAILED", self.write_token("a" * 64))
+        r, _ = self.run_script("--check")
+        self.assertEqual(r.returncode, 0, r.stdout)
+        self.assertIn("needs repair", r.stdout)
 
     def test_not_live(self):
         self.write_token("a" * 64)
-        for status in ("UPDATE_COMPLETE", "none"):
+        for status in ("UPDATE_COMPLETE", "none", "REVIEW_IN_PROGRESS", "ROLLBACK_COMPLETE"):
             with self.subTest(status=status):
                 self.set_stack(status, OLD)
                 r, _ = self.run_script("--check")
@@ -355,11 +418,35 @@ class CheckTest(Base):
                 r, _ = self.run_script("--check", **env)
                 self.assertEqual(r.returncode, 2, r.stdout)
                 self.assertIn("Can't tell", r.stdout)
+        self.set_stack("UPDATE_IN_PROGRESS", digest)
+        r, _ = self.run_script("--check")
+        self.assertIn(f"bash deploy.sh --suffix {self.suffix} --check again", r.stdout)
+
+    def test_unreadable_token_file(self):
+        self.set_stack("UPDATE_COMPLETE", self.write_token("a" * 64))
+        self.token_file.chmod(0)
+        if os.access(self.token_file, os.R_OK):
+            self.skipTest("running as root")
+        r, _ = self.run_script("--check")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("couldn't read", r.stdout)
+        self.assertNotIn("Traceback", r.stdout + r.stderr)
 
     def test_no_file(self):
         r, _ = self.run_script("--check")
         self.assertEqual(r.returncode, 1)
         self.assertIn("No token file", r.stdout)
+
+
+class TemplateNamesTest(unittest.TestCase):
+    def test_the_names_deploy_sh_reads_are_the_templates(self):
+        template = (REPO / "template.yaml").read_text(encoding="utf-8")
+        script = (REPO / "deploy.sh").read_text(encoding="utf-8")
+        function = template[template.index("\n  BlobFunction:\n"):]
+        function = function[:function.index("\n      Code:")]
+        self.assertIn("BEARER_TOKEN_SHA256: !Ref BearerTokenSha256", function)
+        self.assertIn("--logical-resource-id BlobFunction", script)
+        self.assertIn('"Environment.Variables.BEARER_TOKEN_SHA256"', script)
 
 
 class OnePasteLineTest(unittest.TestCase):
