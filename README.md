@@ -289,7 +289,7 @@ is preserved in `SCORECARD.md`. Existing Terraform deployments are
 unaffected; that README says how to keep managing one from the new
 location. New deployments should use the template above.
 
-## Acknowledgements
+## Acknowledgments
 
 Designed and maintained by a human.
 

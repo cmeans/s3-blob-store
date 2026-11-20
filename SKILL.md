@@ -159,16 +159,19 @@ end-to-end 2026-11-20.
    `/tmp/s3-blob-store-token.txt` (or, if you drive the browser,
    download it and give the user the file), save it to their
    password manager, and enter it on your platform's secure
-   registration page (SETUP.md). Only then run the endpoint
-   checks (step 5) in CloudShell, reading the token from the file
-   as Path A step 5 does; that step ends by deleting the file.
-   Delete any downloaded copy too. If your platform can only register
+   registration page (SETUP.md). Keep the CloudShell file until
+   step 5 is done. Delete any downloaded copy. If your platform can only register
    the token by reading the file, say so to the user first: the
    token then passes through your working files, and must be
    deleted from them once the registration is verified. Either
    way, the token is never shown in the terminal or the chat.
-5. **Verify** with the endpoint sequence (Path A step 5) and
-   the STORE-TEST below.
+5. **Verify, then clean up**, in the same CloudShell session:
+   set `TOKEN=$(cat /tmp/s3-blob-store-token.txt)`, run the
+   endpoint sequence (Path A step 5) and the STORE-TEST below
+   with it, and only after both pass run `unset TOKEN && rm
+   /tmp/s3-blob-store-token.txt`. (Path A step 5 ends with that
+   cleanup; in Path B it moves to the end, because the STORE-TEST
+   needs the token too.)
 6. **Optional but recommended — IAM bootstrap.** If you signed
    in as root, offer to create a dedicated IAM user for future
    assistant work so root is not the standing login (commands
@@ -212,7 +215,10 @@ Run against any new deployment before calling it done. All
 checks must pass. Use labels only this run uses (for example
 `store-test-<UTC timestamp>-<n>`), and GET each one first: it
 must be 404, or stop. A store already holding blobs must never
-lose one to its own test.
+lose one to its own test. Every check but the unauthenticated
+one needs the token: in CloudShell, read it from the token file
+(`TOKEN=$(cat /tmp/s3-blob-store-token.txt)`) before that file is
+deleted; elsewhere, through the store's registered connection.
 
 | Check | Expected |
 |---|---|

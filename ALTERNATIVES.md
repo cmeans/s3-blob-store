@@ -41,11 +41,12 @@ create the stack.
 Why it is not the main path:
 
 - The template must be hosted in an S3 bucket to have a
-  templateURL, and a hosted template's bucket must be in the
-  **same region** as the stack — so a hosted deployment means
-  maintaining a template bucket per region (or accepting one
-  region), a long-lived public object on the maintainer's
-  account, and a link table per region in the README. The
+  templateURL. AWS doesn't document a region rule for template
+  URLs, but cross-region quick-create links are reported to
+  fail, so a hosted deployment likely means a template bucket
+  per region (not tested here), plus a long-lived public object
+  on the maintainer's account and a link table per region in the
+  README. The
   one-paste downloads the template from the GitHub release
   instead and deploys from a local file, which has none of
   those constraints.
