@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Read-only token for every job: nothing here writes to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # NOTE: pr-labels.yml and pr-labels-ci.yml find this workflow by its name
+  # ("CI") and file (ci.yml). If either is renamed, update them too.
+  # This job's name ("checks") is meant to be a required check in main's
+  # ruleset: if it is renamed, update the ruleset, or every PR waits on a
+  # check that never comes.
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.17.0
+          terraform_wrapper: false
+      - name: Tool versions
+        run: |
+          python3 --version
+          terraform version
+      - name: ruff
+        run: |
+          set -o pipefail
+          git ls-files -z -- '*.py' | xargs -0 --no-run-if-empty pipx run ruff==0.15.7 check
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+      - name: terraform validate
+        # -backend=false: CI has no AWS credentials and needs none; validate
+        # checks the configuration, not any deployed state.
+        run: |
+          set -euo pipefail
+          while IFS= read -r dir; do
+            echo "::group::validate $dir"
+            terraform -chdir="$dir" init -backend=false -input=false -no-color
+            terraform -chdir="$dir" validate -no-color
+            echo "::endgroup::"
+          done < <(git ls-files -- '*.tf' | xargs -n1 dirname | sort -u)
