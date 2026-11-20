@@ -152,31 +152,36 @@ the one-paste below is the supported path.)
    ```
 
    It downloads two files from that release, `template.yaml` and
-   `deploy.sh` (read it first if you like: it's short), and runs
-   the script. The script:
+   `deploy.sh`, and runs the script. (To read the script first,
+   paste the line without its last `&& bash deploy.sh`, read
+   `deploy.sh`, then run `bash deploy.sh`.) The script:
 
    - checks the stack's state first, and **stops** unless it can
      confirm there is no store yet. An existing store means
      deploying would rotate its token, and everything using the
      old one would start getting 401; to do that on purpose, see
      the caveats, on rotation. For a failed first deploy, a busy
-     stack, or a state it can't read, it says what to do instead;
+     stack, or a state it can't read, it says what to do instead.
+     Every stop changes nothing;
    - stops if a token file from an earlier run is still in
-     `/tmp`, so a token you haven't saved yet is never overwritten;
+     `/tmp`, so a token you haven't saved yet is never overwritten
+     (`bash deploy.sh --check` says whether that file's token is
+     live);
    - generates the bearer token and its SHA-256 digest, and writes
      the token to a private file in `/tmp` **before** deploying,
-     so a session that drops mid-deploy doesn't lose it. The token
+     so it is in the file however the deploy ends. The token
      is never displayed: CloudShell replays terminal output on
      session restore, so it never goes to the screen;
    - deploys the stack with only the digest as a parameter, and
      prints the stack's outputs. The deploy takes about 100
      seconds of "Waiting for stack create/update to complete";
      that is normal. Note the `FunctionUrl` output;
-   - if the deploy fails, asks the stack what happened before
-     touching the token file: it removes the file only when
-     nothing changed, and otherwise keeps it and tells you how to
-     find out whether that token is live (an interrupted deploy,
-     for example, can still finish on AWS's side).
+   - if the deploy fails or you press Ctrl-C, checks the store
+     before touching the token file. If the store didn't take the
+     new token, it removes the file. If it did, that's a deploy.
+     If it can't tell yet (an interrupted deploy, for example, goes
+     on on AWS's side), it keeps the file and tells you to run
+     `bash deploy.sh --check` once the stack settles.
 
    The token never exists in your own shell: the script runs in
    its own process. If you already run a store from the Terraform
@@ -265,11 +270,13 @@ hasn't been run yet.
   handler, which is the design assumption throughout: worst case,
   an unauthenticated caller reaches a function that returns 401
   and can only ever move ciphertext.
-- **Token rotation is a re-run, on purpose.** In a CloudShell
-  directory that holds the release's `template.yaml` and
-  `deploy.sh` (step 3 downloads them), run `ROTATE=1 bash
-  deploy.sh`. Without `ROTATE=1` the script stops rather than
-  rotate. It generates a fresh token, updates the stack with its
+- **Token rotation is a re-run, on purpose.** In CloudShell, paste
+  the step 3 line again, from the current release, with
+  `bash deploy.sh --rotate` at the end in place of `bash
+  deploy.sh`.
+  Without `--rotate` the script stops rather than rotate. (Downloading
+  again matters: rotating with an older `template.yaml` would also
+  roll the stack back to it.) It generates a fresh token, updates the stack with its
   digest, and the old token stops working; then update the credential
   wherever your agent platform holds it (SETUP.md). There is no
   expiry or revocation list; for a single-operator store that

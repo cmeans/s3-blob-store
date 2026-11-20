@@ -129,10 +129,11 @@ curl -sf -X DELETE -H "Authorization: Bearer $TOKEN" "$URL"blobs/<label>
 
 ## Rotation
 
-In CloudShell, in a directory with the release's `template.yaml`
-and `deploy.sh`, run `ROTATE=1 bash deploy.sh` (with
-`NAME_SUFFIX=<x>` for a suffixed store; SKILL.md, Isolation by
-name). Without `ROTATE=1` the script stops rather than rotate. It generates a fresh token and digest and updates
+In CloudShell, paste the deploy line from README step 3 again,
+from the current release, ending in `bash deploy.sh --rotate`
+instead of `bash deploy.sh` (add `--suffix <x>` for a suffixed
+store; SKILL.md, Isolation by name). Without `--rotate` the
+script stops rather than rotate. It generates a fresh token and digest and updates
 the stack in place; the FunctionUrl does not change. Then:
 
 1. Put the new token in the password manager.

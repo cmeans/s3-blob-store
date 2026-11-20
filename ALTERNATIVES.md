@@ -13,7 +13,8 @@ all are kept for people whose circumstances fit them better. They are
 documented, not supported: if one of them and the one-paste
 disagree, the one-paste is right.
 
-Shared prerequisite for all of them: the token and its digest.
+Shared prerequisite for sections 1, 2 and 4: the token and its
+digest (section 3 runs `deploy.sh`, which makes its own).
 Generate both wherever you have Python 3:
 
 ```
@@ -24,7 +25,7 @@ The first line is the token — into a password manager
 immediately. The second is the SHA-256 digest, the only form
 that ever goes into a stack parameter. Whichever path you
 take, finish with the endpoint check and wiring in `README.md`
-steps 5–6 / `SETUP.md`. These paths create no token file, so in
+steps 5–6 / `SETUP.md`. Sections 1, 2 and 4 create no token file, so in
 step 5 set `TOKEN` without typing it (`read -rs TOKEN`, then a
 paste from the password manager) instead of the `cat` line, and
 leave out the final `rm`.

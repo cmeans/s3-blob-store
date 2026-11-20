@@ -47,13 +47,13 @@ an agent must not keep in its own context or memory.
 - **Isolation by name.** Every non-production deploy uses a
   distinct stack name and `NameSuffix`, which makes its bucket
   distinct. A test can then never touch another deployment's
-  data, and cleanup is one stack deletion. Run the script as
-  `NAME_SUFFIX=<x> bash deploy.sh`: it deploys stack
+  data, and cleanup is one stack deletion. End the one-paste with
+  `bash deploy.sh --suffix <x>`: it deploys stack
   `s3-blob-store-<x>` with `NameSuffix=<x>`, and writes its token
-  to `/tmp/s3-blob-store-<x>-token.txt`. Use the same stack name
-  for that store's checks, rotation (`NAME_SUFFIX=<x> ROTATE=1
-  bash deploy.sh`) and teardown too: run against the default
-  name, they'd miss it. `<x>`: 1 to 21 lowercase letters,
+  to `/tmp/s3-blob-store-<x>-token.txt`. Use the same suffix for
+  that store's checks, rotation (`--rotate --suffix <x>`), endpoint
+  checks and teardown too: run against the default name, they'd
+  miss it. `<x>`: 1 to 21 lowercase letters,
   digits and hyphens, not starting or ending with a hyphen
   (longer suffixes can overrun S3's 63-character bucket-name
   limit in long region names, so the script and the template
@@ -86,21 +86,24 @@ Give the user these steps; they take about five minutes.
    store (deploying would rotate its token, and every consumer
    of the old token would start getting 401), a failed first
    deploy, a busy stack, an unreadable state, or a token file
-   left from an earlier run. Each stop prints what to do, and
-   exits 3 (2 when the state couldn't be read). On a stop,
-   report the message to the user and do what it says only
-   with their OK; never set `ROTATE=1` unless they asked for a
-   rotation (Operations, below). If the account already has a
-   store from the Terraform route in this region, use a
-   `NAME_SUFFIX` (see Isolation by name): both routes derive the
-   same bucket name.
+   left from an earlier run. Each stop changes nothing, prints
+   what to do, and exits 3. On a stop, report the message to the
+   user and do what it says only with their OK; never add
+   `--rotate` unless they asked for a rotation (Operations,
+   below). If the account already has a store from the Terraform
+   route in this region, use `--suffix` (see Isolation by name):
+   both routes derive the same bucket name.
 
-   If the deploy fails, the script checks the stack before
-   touching the token file. Exit 1: nothing changed, and the
-   file was removed. Exit 2 with "isn't confirmed yet": the
-   file is kept, because that token may be live; watch the
-   stack status as the message says, and tell the user which
-   way it ended before anyone saves or discards the token.
+   If the deploy fails or is interrupted, the script compares
+   the token file with the digest the store's function holds
+   before touching the file. Exit 0: the store runs the new
+   token, a deploy after all. Exit 1: it doesn't, nothing
+   changed, and the file was removed. Exit 2: it can't tell yet,
+   and the file is kept. Then run `bash deploy.sh --check` (with
+   the same `--suffix`) once the stack settles: exit 0 means the
+   token is live (save it), 1 that it isn't (delete the file), 2
+   still can't tell. Never tell the user a token is live, or
+   that it isn't, from anything but those exit codes.
 
    The deploy takes ~100 seconds of "Waiting for stack
    create/update to complete" — that is normal, not a stall.
@@ -236,6 +239,9 @@ deleted; elsewhere, through the store's registered connection.
 | Replace a label, then GET | new content served |
 | DELETE, then GET | `deleted`, then 404 |
 | PUT bytes that aren't UTF-8, with `Content-Type: text/plain` | record what comes back (400 `body must be UTF-8 text` expected; a 200 means the Function URL passed it as text), and GET the label to see what was stored; delete it after |
+| `bash deploy.sh --check --suffix <x>`, with the deploy's token file still there | `LIVE`, exit 0 (the function's digest is readable) |
+| Run the one-paste again, ending `bash deploy.sh --suffix <x>`, with no `--rotate` | stops: `already exists`, exit 3, nothing changed |
+| Rotate (`--rotate --suffix <x>`, token file saved and deleted first), then GET with the old and the new token | `Rotated.`; 401 old, 200 new |
 
 Payloads are UTF-8 text (ASCII is simplest), as the store
 expects (SETUP.md, Bodies): random binary fails, and that would
@@ -245,10 +251,11 @@ afterwards so the bucket is left empty of test data.
 ## Operations
 
 - **Rotation** (only when the user asks for one, or a token may
-  have leaked): in a CloudShell directory with the release's
-  `template.yaml` and `deploy.sh`, run `ROTATE=1 bash deploy.sh`
-  (add `NAME_SUFFIX=<x>` for a suffixed store). Without
-  `ROTATE=1` the script stops instead. It also stops if an
+  have leaked): paste the step 3 line again, from the current release, with
+  `bash deploy.sh --rotate` at the end in place of `bash
+  deploy.sh`
+  (add `--suffix <x>` for a suffixed store). Without `--rotate`
+  the script stops instead. It also stops if an
   earlier token file is still in `/tmp`: get that one saved or
   deleted first. It generates a fresh token and digest and updates
   the stack in place; the old token stops working when the
