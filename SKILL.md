@@ -47,16 +47,17 @@ an agent must not keep in its own context or memory.
 - **Isolation by name.** Every non-production deploy uses a
   distinct stack name and `NameSuffix`, which makes its bucket
   distinct. A test can then never touch another deployment's
-  data, and cleanup is one stack deletion. In the one-paste,
-  change both `--stack-name s3-blob-store` occurrences to
-  `s3-blob-store-<x>` and add `NameSuffix=<x>` after the digest
-  in `--parameter-overrides`. Use the same stack name for that
-  store's pre-check, rotation and teardown too: run against the
-  default name, they'd miss it (and a "rotation" would create a
-  second, default store). `<x>`: 1 to 21 lowercase letters,
+  data, and cleanup is one stack deletion. Run the script as
+  `NAME_SUFFIX=<x> bash deploy.sh`: it deploys stack
+  `s3-blob-store-<x>` with `NameSuffix=<x>`, and writes its token
+  to `/tmp/s3-blob-store-<x>-token.txt`. Use the same stack name
+  for that store's checks, rotation (`NAME_SUFFIX=<x> ROTATE=1
+  bash deploy.sh`) and teardown too: run against the default
+  name, they'd miss it. `<x>`: 1 to 21 lowercase letters,
   digits and hyphens, not starting or ending with a hyphen
   (longer suffixes can overrun S3's 63-character bucket-name
-  limit in long region names; see #11).
+  limit in long region names, so the script and the template
+  refuse them).
 - **Restarts and destructive steps belong to the user** unless
   they have explicitly delegated them. Deleting a stack deletes
   its bucket's contents' only access path; confirm first unless
@@ -71,36 +72,35 @@ Give the user these steps; they take about five minutes.
    store should live in — not the embedded toolbar panel (in
    Firefox the toolbar panel refuses file downloads, which step
    4 needs). Bash session (the default).
-   Before the paste, check that no store is there already:
+3. Paste the one line (`<release>` is the release being
+   installed; use the same tag as the URL you loaded this file
+   from):
 
    ```
-   aws cloudformation describe-stacks --stack-name s3-blob-store --query "Stacks[0].StackStatus" --output text
+   curl -fsSL -O https://github.com/cmeans/s3-blob-store/releases/download/<release>/template.yaml -O https://github.com/cmeans/s3-blob-store/releases/download/<release>/deploy.sh && bash deploy.sh
    ```
 
-   An error saying the stack does not exist means go ahead. Any
-   status means a store (or a failed attempt) is already there:
-   **stop and ask the user.** Re-running the paste over an
-   existing store rotates its token, and every consumer of the
-   old token starts getting 401. Rotate only when the user asked
-   for a rotation (Operations, below). A `ROLLBACK_COMPLETE`
-   status is a failed first deploy: with the user's OK, delete it
-   (`aws cloudformation delete-stack --stack-name s3-blob-store`),
-   wait with `aws cloudformation wait stack-delete-complete
-   --stack-name s3-blob-store`, and re-run. A status ending in
-   `_IN_PROGRESS` means something is still running: wait for it,
-   then check again. `DELETE_FAILED` is a deleted store whose
-   bucket still held blobs (Operations, Teardown): its bucket name
-   is taken, so a new default stack would fail too. Ask the user
-   whether the blobs matter, then see Teardown for the way out. If the account already has
-   a store from the Terraform route in this region, use a
-   `NameSuffix` (see Isolation by name): both routes derive the
+   It downloads `template.yaml` and `deploy.sh` from that
+   release and runs the script, which **stops on its own**
+   unless it can confirm there's no store yet: an existing
+   store (deploying would rotate its token, and every consumer
+   of the old token would start getting 401), a failed first
+   deploy, a busy stack, an unreadable state, or a token file
+   left from an earlier run. Each stop prints what to do, and
+   exits 3 (2 when the state couldn't be read). On a stop,
+   report the message to the user and do what it says only
+   with their OK; never set `ROTATE=1` unless they asked for a
+   rotation (Operations, below). If the account already has a
+   store from the Terraform route in this region, use a
+   `NAME_SUFFIX` (see Isolation by name): both routes derive the
    same bucket name.
-3. Paste the one-liner (single line; `<release>` is the release
-   being installed):
 
-   ```
-   curl -fsSLO https://github.com/cmeans/s3-blob-store/releases/download/<release>/template.yaml && read T D < <(python3 -c 'import secrets,hashlib;t=secrets.token_hex(32);print(t,hashlib.sha256(t.encode()).hexdigest())') && aws cloudformation deploy --template-file template.yaml --stack-name s3-blob-store --capabilities CAPABILITY_IAM --parameter-overrides BearerTokenSha256=$D && (umask 077; printf %s "$T" > /tmp/s3-blob-store-token.txt) && unset T D && aws cloudformation describe-stacks --stack-name s3-blob-store --query "Stacks[0].Outputs" --output table
-   ```
+   If the deploy fails, the script checks the stack before
+   touching the token file. Exit 1: nothing changed, and the
+   file was removed. Exit 2 with "isn't confirmed yet": the
+   file is kept, because that token may be live; watch the
+   stack status as the message says, and tell the user which
+   way it ended before anyone saves or discards the token.
 
    The deploy takes ~100 seconds of "Waiting for stack
    create/update to complete" — that is normal, not a stall.
@@ -138,8 +138,8 @@ end-to-end 2026-11-20.
    short-lived.
 2. **Sign in and open the standalone CloudShell console** in the
    target region (same toolbar-panel caveat as Path A).
-3. **Run the same pre-check and one-paste** as Path A step 3,
-   and stop on an existing stack the same way. Driving a
+3. **Run the same one-paste** as Path A step 3, and handle its
+   stops and exit codes the same way. Driving a
    CloudShell terminal has its own rules, all learned live:
    - Prefer single-line pastes. A multi-line paste triggers
      CloudShell's "Safe Paste" warning; if you must paste
@@ -244,9 +244,12 @@ afterwards so the bucket is left empty of test data.
 ## Operations
 
 - **Rotation** (only when the user asks for one, or a token may
-  have leaked): re-run the deploy one-paste against the existing
-  stack; this is the one time the pre-check finding a stack is
-  expected. It generates a fresh token and digest and updates
+  have leaked): in a CloudShell directory with the release's
+  `template.yaml` and `deploy.sh`, run `ROTATE=1 bash deploy.sh`
+  (add `NAME_SUFFIX=<x>` for a suffixed store). Without
+  `ROTATE=1` the script stops instead. It also stops if an
+  earlier token file is still in `/tmp`: get that one saved or
+  deleted first. It generates a fresh token and digest and updates
   the stack in place; the old token stops working when the
   update completes. Not yet run end to end. Move the
   new token into the password manager / secure registration
@@ -280,9 +283,10 @@ afterwards so the bucket is left empty of test data.
       (it is ~11.6 KB).
 - [ ] STORE-TEST passes against a scratch stack deployed from
       the exact generated template (fresh `NameSuffix`).
-- [ ] The release **attaches `template.yaml` as a release
-      asset** — the one-paste downloads from the asset URL,
-      which does not serve files that merely exist in the repo.
+- [ ] The release **attaches `template.yaml` and `deploy.sh` as
+      release assets** — the one-paste downloads both from the
+      asset URLs, which don't serve files that merely exist in
+      the repo.
 - [ ] The Terraform route under `alternatives/terraform/` still
       zips `lambda/index.py` (CI checks this) and passes
       `terraform validate`.

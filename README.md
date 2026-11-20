@@ -58,8 +58,11 @@ never touches.
   skeleton and the handler (`--check` verifies the committed copy),
   and refuses to build past the 4,096-character inline-code budget
   or CloudFormation's 51,200-byte template-body limit.
-- `tests/test_build_template.py` — tests for the build tool and its
-  guards (`python3 -m unittest discover -s tests`).
+- `deploy.sh` — the deploy script the one-paste runs (step 3),
+  published as a release asset beside `template.yaml`.
+- `tests/` — tests for the build tool and its guards, and for
+  `deploy.sh` and the one-paste line against a fake AWS CLI
+  (`python3 -m unittest discover -s tests`).
 - `alternatives/terraform/` — the same resources deployed with
   Terraform, for people who'd rather run every step themselves; its
   own README has the steps.
@@ -140,45 +143,45 @@ the one-paste below is the supported path.)
    toolbar panel: in some browsers the toolbar panel cannot
    download files, and step 4 needs a download.
 
-3. **Check there's no store yet, then paste the one line.**
-   First:
+3. **Paste the one line**, with `<release>` replaced by the
+   release you are installing (e.g. `v1.0.0`):
 
    ```
-   aws cloudformation describe-stacks --stack-name s3-blob-store --query "Stacks[0].StackStatus" --output text
+   curl -fsSL -O https://github.com/cmeans/s3-blob-store/releases/download/<release>/template.yaml -O https://github.com/cmeans/s3-blob-store/releases/download/<release>/deploy.sh && bash deploy.sh
    ```
 
-   It should fail with "Stack with id s3-blob-store does not
-   exist". If it prints a status instead, a store (or a failed
-   attempt) is already there: **stop.** Pasting the line below
-   over an existing store rotates its token, and everything using
-   the old one starts getting 401 (to rotate on purpose, see the
-   caveats). `ROLLBACK_COMPLETE` is a failed first deploy: delete
-   it with `aws cloudformation delete-stack --stack-name
-   s3-blob-store`, then `aws cloudformation wait
-   stack-delete-complete --stack-name s3-blob-store`, and start
-   this step again. A status ending in `_IN_PROGRESS`: wait, then
-   check again. `DELETE_FAILED`: see the caveats on deleting the
-   stack. If
-   you already run a store from the Terraform route in this
-   account and region, see `SKILL.md`'s "Isolation by name" for
-   a suffixed stack: both routes derive the same bucket name.
+   It downloads two files from that release, `template.yaml` and
+   `deploy.sh` (read it first if you like: it's short), and runs
+   the script. The script:
 
-   Then paste the line, with `<release>` replaced by the release
-   you are installing (e.g. `v1.0.0`):
+   - checks the stack's state first, and **stops** unless it can
+     confirm there is no store yet. An existing store means
+     deploying would rotate its token, and everything using the
+     old one would start getting 401; to do that on purpose, see
+     the caveats, on rotation. For a failed first deploy, a busy
+     stack, or a state it can't read, it says what to do instead;
+   - stops if a token file from an earlier run is still in
+     `/tmp`, so a token you haven't saved yet is never overwritten;
+   - generates the bearer token and its SHA-256 digest, and writes
+     the token to a private file in `/tmp` **before** deploying,
+     so a session that drops mid-deploy doesn't lose it. The token
+     is never displayed: CloudShell replays terminal output on
+     session restore, so it never goes to the screen;
+   - deploys the stack with only the digest as a parameter, and
+     prints the stack's outputs. The deploy takes about 100
+     seconds of "Waiting for stack create/update to complete";
+     that is normal. Note the `FunctionUrl` output;
+   - if the deploy fails, asks the stack what happened before
+     touching the token file: it removes the file only when
+     nothing changed, and otherwise keeps it and tells you how to
+     find out whether that token is live (an interrupted deploy,
+     for example, can still finish on AWS's side).
 
-   ```
-   curl -fsSLO https://github.com/cmeans/s3-blob-store/releases/download/<release>/template.yaml && read T D < <(python3 -c 'import secrets,hashlib;t=secrets.token_hex(32);print(t,hashlib.sha256(t.encode()).hexdigest())') && aws cloudformation deploy --template-file template.yaml --stack-name s3-blob-store --capabilities CAPABILITY_IAM --parameter-overrides BearerTokenSha256=$D && (umask 077; printf %s "$T" > /tmp/s3-blob-store-token.txt) && unset T D && aws cloudformation describe-stacks --stack-name s3-blob-store --query "Stacks[0].Outputs" --output table
-   ```
-
-   What it does, in order: downloads the template from the
-   release, generates the bearer token and its SHA-256 digest
-   in memory, deploys the stack with only the digest as a
-   parameter, writes the token to a private file in `/tmp`
-   (it is never displayed — CloudShell replays terminal output
-   on session restore, so the token never goes to the screen),
-   and prints the stack's outputs. The deploy takes about
-   100 seconds of "Waiting for stack create/update to
-   complete"; that is normal. Note the `FunctionUrl` output.
+   The token never exists in your own shell: the script runs in
+   its own process. If you already run a store from the Terraform
+   route in this account and region, use a suffixed stack
+   (`SKILL.md`, Isolation by name): both routes derive the same
+   bucket name.
 
    The stack creates 7 resources: the bucket and its policy,
    the role, the Lambda, its Function URL, and the two
@@ -240,8 +243,8 @@ the token out the same way, and verifies the endpoint itself.
 That path, and the assisted account creation, are written up
 for assistants in `SKILL.md`. Both deploy paths were exercised
 end to end before this README was published (results in
-`SCORECARD.md`), with step 3's pre-check and step 5's
-fresh-label check added since; the assisted account creation
+`SCORECARD.md`) with the one-paste line as it was then: step 3's
+`deploy.sh` and step 5's fresh-label check came after; the assisted account creation
 hasn't been run yet.
 
 ## Caveats, honestly
@@ -259,10 +262,12 @@ hasn't been run yet.
   design assumption throughout: worst case, an unauthenticated
   caller reaches a function that returns 401 and can only ever
   move ciphertext.
-- **Token rotation is a re-run.** Paste the deploy line again
-  (step 3's check will find the stack; that's expected here): it
-  generates a fresh token, updates the stack with its digest,
-  and the old token stops working; then update the credential
+- **Token rotation is a re-run, on purpose.** In a CloudShell
+  directory that holds the release's `template.yaml` and
+  `deploy.sh` (step 3 downloads them), run `ROTATE=1 bash
+  deploy.sh`. Without `ROTATE=1` the script stops rather than
+  rotate. It generates a fresh token, updates the stack with its
+  digest, and the old token stops working; then update the credential
   wherever your agent platform holds it (SETUP.md). There is no
   expiry or revocation list; for a single-operator store that
   trade-off is deliberate.

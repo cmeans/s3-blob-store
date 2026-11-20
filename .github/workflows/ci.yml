@@ -47,8 +47,13 @@ jobs:
         # passes the repo's 4,096-character ZipFile limit, or if the template
         # passes CloudFormation's 51,200-byte TemplateBody limit.
         run: python3 tools/build_template.py --check
-      - name: build tool tests
+      - name: tests (build tool, deploy.sh, one-paste line)
         run: python3 -m unittest discover -s tests -v
+      - name: shellcheck deploy.sh
+        # deploy.sh is a release asset users run in CloudShell.
+        run: |
+          shellcheck --version | sed -n 2p
+          shellcheck deploy.sh
       - name: cfn-lint
         # Every tracked CloudFormation template (every .yaml outside
         # .github/): the store, its skeleton, and the shared Terraform
