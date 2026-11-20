@@ -1,10 +1,10 @@
-# ALTERNATES — other ways to stand the same resources up
+# ALTERNATIVES — other ways to stand the same resources up
 
 The supported deployment is the CloudShell one-paste in
 `README.md`. It is the only path that needs nothing installed,
 nothing hosted, and no account preparation beyond the AWS
-account itself, and it is the path that gets tested on every
-release (`SCORECARD.md`).
+account itself, and it is the path releases are tested on
+(`SCORECARD.md`).
 
 The alternatives below produce the **identical stack** — the
 same 7 resources from the same `template.yaml` — and are kept
@@ -83,24 +83,34 @@ aws cloudformation deploy --template-file template.yaml --stack-name s3-blob-sto
 ```
 
 Generate the token and digest with the generator above and
-handle the token exactly as in `README.md` step 4 (password
+handle the token as in `README.md` steps 4 and 5 (password
 manager, no terminal echo beyond the one generation, which
-you should clear from scrollback). This path's only downside
+you should clear from scrollback). Run `README.md` step 3's
+check for an existing stack first: deploying over one rotates
+its token. This path's only downside
 is the prerequisite the main path exists to avoid: a local
 CLI install with working credentials.
 
-## 4. Terraform (the earlier version)
+## 4. Terraform
 
-The Terraform version lives in this repo at
-`alternates/terraform/` (with its CloudFormation bootstrap for
-the state bucket) — kept in the repo, not retired, and kept in
-sync with the handler if the handler changes. Existing
-Terraform deployments are unaffected and need no action —
-the handler and the API are the same. New deployments should
-use the template: the Terraform version requires a local
-Terraform install, a bootstrap step, and edits to a backend
-file, and it is no longer how releases are tested. Its
-STORE-TEST scorecard is preserved in `SCORECARD.md`.
+For people who'd rather keep the store in Terraform and run
+every step themselves, with a plan to read before anything
+changes. It lives in
+[`alternatives/terraform/`](alternatives/terraform/README.md), with
+its own README (the steps, and how an existing deployment from an
+earlier version of this repo keeps its state). It needs a
+Terraform state bucket: one you have, or the shared one
+[`alternatives/terraform-state-bootstrap/`](alternatives/terraform-state-bootstrap/bootstrap.yaml)
+creates. It zips the same
+`lambda/index.py` the template inlines, so the API is the same.
+
+It isn't the main path because it needs a local Terraform
+install, AWS credentials on your machine and a state bucket,
+and it isn't how releases are tested. It creates 12 Terraform
+resources where the template creates 7 (Terraform configures the
+bucket through separate resources), with the same behavior. Its
+STORE-TEST scorecard, from the first live deployment, is in
+`SCORECARD.md`.
 
 ## 5. By hand (not recommended)
 

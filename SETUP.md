@@ -22,10 +22,13 @@ notes, memory, or plaintext config.
 - **Muse:** register a custom connection for the store —
   provider name of your choosing (e.g. `s3-blob-store`), API
   host = the FunctionUrl host, authentication = bearer token
-  in the `Authorization` header. Enter the token on the secure
-  entry page; it is stored as a credential the platform swaps
-  in at egress to that one host, so the token never sits in
-  the assistant's working files. The first real call (the
+  in the `Authorization` header. **You** enter the token on
+  the secure entry page, pasted from your password manager; it
+  is stored as a credential the platform swaps in at egress to
+  that one host, so the token never sits in the assistant's
+  context or working files. (If the assistant deployed the
+  store and downloaded the token file itself, see `SKILL.md`
+  Path B step 4: it hands you the token, it doesn't read it.) The first real call (the
   health check below) is what verifies the registration.
 - **Other assistants:** the equivalent — a secret-store entry
   or environment-scoped credential bound to that host, used
@@ -56,28 +59,34 @@ it proves the auth gate, not just the function, is alive.
 
 ## API contract
 
-All routes are on the FunctionUrl. Every route except the
-401/404 behaviour requires the bearer token.
+All routes are on the FunctionUrl, and every request needs
+the bearer token: without it (or with a wrong one), any path
+and any method gets 401 before anything else is checked.
 
 | Route | Method | Success | Notes |
 |---|---|---|---|
 | `/` | GET | 200, body `ok` | health |
-| `/blobs/<label>` | PUT | 200, body `stored` | request body is the blob, stored verbatim; replaces any existing blob at the label |
-| `/blobs/<label>` | GET | 200, blob bytes | 404 when the label has no blob |
-| `/blobs/<label>` | DELETE | 200, body `deleted` | deleting a missing label is not an error path to rely on; GET after delete returns 404 |
+| `/blobs/<label>` | PUT | 200, body `stored` | request body is the blob (UTF-8 text, see Bodies); replaces any existing blob at the label |
+| `/blobs/<label>` | GET | 200, the blob | 404 when the label has no blob |
+| `/blobs/<label>` | DELETE | 200, body `deleted` | answers `deleted` whether or not the label existed, so it proves nothing about what was there; GET after delete returns 404 |
 
 Errors: 401 `unauthorized` (missing or wrong token), 404
-(label not found), 400 (label fails validation).
+`not found` (no blob at the label, or no such route), 405
+`method not allowed`, 400 (label fails validation). A body
+that isn't UTF-8 currently fails with a server error rather
+than a 400 ([#12](https://github.com/cmeans/s3-blob-store/issues/12)).
 
-**Labels:** letters, digits, dot, dash, underscore; at most
-128 characters. Colons and slashes are not allowed — if your
+**Labels:** letters, digits, dot, dash, underscore, starting
+with a letter or digit; at most 128 characters. Colons and slashes are not allowed — if your
 naming scheme uses them (e.g. `agent:purpose:key`), map them
 before storing (`.` for `:` is the convention the reference
 deployment uses) and keep the mapping in one place.
 
-**Bodies:** arbitrary bytes, stored and returned verbatim.
-The store is designed for credential-sized payloads;
-round trips are test-verified to 64,000 bytes (see
+**Bodies:** UTF-8 text, stored and returned as is. That suits
+ASCII-armored ciphertext (for example `age -a` output); encode
+binary as base64 before storing it. The store is designed for
+credential-sized payloads;
+round trips are test-verified to 64,000 characters (see
 `SCORECARD.md`). It is not a file store — keep blobs small.
 
 **Semantics worth knowing:**
@@ -98,10 +107,10 @@ round trips are test-verified to 64,000 bytes (see
 
 ```
 # store (from a file, so the content never appears in shell history as an argument)
-curl -s -X PUT -H "Authorization: Bearer <token>" --data-binary @blob.bin "<FunctionUrl>blobs/<label>"
+curl -s -X PUT -H "Authorization: Bearer <token>" --data-binary @blob.txt "<FunctionUrl>blobs/<label>"
 
 # fetch (to a file; the same reasoning)
-curl -s -H "Authorization: Bearer <token>" "<FunctionUrl>blobs/<label>" -o blob.bin
+curl -s -H "Authorization: Bearer <token>" "<FunctionUrl>blobs/<label>" -o blob.txt
 
 # delete
 curl -s -X DELETE -H "Authorization: Bearer <token>" "<FunctionUrl>blobs/<label>"
