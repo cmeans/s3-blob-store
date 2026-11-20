@@ -14,6 +14,7 @@ presented token is hashed and compared in constant time.
 """
 
 import base64
+import binascii
 import hashlib
 import hmac
 import os
@@ -34,10 +35,11 @@ ROUTE_RE = re.compile(r"^/blobs/([^/]+)$")
 
 def _authorized(event):
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
-    auth = headers.get("authorization", "")
-    if not auth.startswith("Bearer "):
+    # The auth scheme is case-insensitive (RFC 7235): "bearer" works.
+    scheme, _, token = headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
         return False
-    digest = hashlib.sha256(auth[len("Bearer "):].encode()).hexdigest()
+    digest = hashlib.sha256(token.encode()).hexdigest()
     return hmac.compare_digest(digest, TOKEN_SHA256)
 
 
@@ -85,7 +87,10 @@ def handler(event, _context):
     if method == "PUT":
         body = event.get("body") or ""
         if event.get("isBase64Encoded"):
-            body = base64.b64decode(body).decode("utf-8")
+            try:
+                body = base64.b64decode(body, validate=True).decode("utf-8")
+            except (binascii.Error, UnicodeDecodeError):
+                return _reply(400, "body must be UTF-8 text")
         s3.put_object(
             Bucket=BUCKET,
             Key=key,

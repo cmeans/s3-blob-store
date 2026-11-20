@@ -28,12 +28,23 @@ Parameters:
   NameSuffix:
     Type: String
     Default: ""
-    AllowedPattern: "^$|^[a-z0-9][a-z0-9-]{0,20}[a-z0-9]$|^[a-z0-9]$"
-    ConstraintDescription: Must be empty, or lowercase letters, digits and dashes.
+    AllowedPattern: "^$|^[a-z0-9][a-z0-9-]{0,19}[a-z0-9]$|^[a-z0-9]$"
+    ConstraintDescription: >-
+      Must be empty, or 1-21 lowercase letters, digits and dashes,
+      starting and ending with a letter or digit.
     Description: >-
       OPTIONAL suffix appended to the derived blob bucket name,
       for a second instance of the store in the same account and
-      region. Leave empty normally.
+      region. Leave empty normally. At most 21 characters, so
+      handoff-blobs-<account>-<region>-<suffix> stays within S3's
+      63-character limit in the longest region names (14 characters).
+
+# The blob prefix, defined once: the role's grant and the handler's
+# BLOB_PREFIX both read it, so they can't drift apart.
+Mappings:
+  Store:
+    Blobs:
+      Prefix: blobs/
 
 Conditions:
   HasNameSuffix: !Not
@@ -47,8 +58,9 @@ Resources:
   # there is deliberately no VersioningConfiguration here): a
   # replaced or deleted blob must actually be gone through the API,
   # or the STORE-TEST history check fails.
-  # The four bucket sub-resources Terraform needs (public access
-  # block, encryption, ownership controls) are properties here.
+  # Three of the bucket sub-resources Terraform needs (public
+  # access block, encryption, ownership controls) are properties
+  # here; the fourth, the bucket policy, is BlobBucketPolicy below.
   # ----------------------------------------------------------------
   BlobBucket:
     Type: AWS::S3::Bucket
@@ -124,29 +136,33 @@ Resources:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:DeleteObject
-                Resource: !Sub "${BlobBucket.Arn}/blobs/*"
+                Resource: !Sub
+                  - "${BlobBucket.Arn}/${Prefix}*"
+                  - Prefix: !FindInMap [Store, Blobs, Prefix]
 
   # ----------------------------------------------------------------
-  # The Lambda and its public Function URL. AuthorizationType NONE
-  # because the bearer-token check happens in the handler; a request
+  # The Lambda and its public Function URL. AuthType NONE because
+  # the bearer-token check happens in the handler; a request
   # without the token gets a 401 from the code and never touches S3.
   # No FunctionName, for the same generated-name reason as the role.
-  # The handler code is inline (ZipFile, limit 4,096 characters;
-  # lambda/index.py is the canonical source and the build script
-  # refuses to generate past the limit).
+  # The handler code is inline (ZipFile). lambda/index.py is the
+  # canonical source, and the build script keeps it within a
+  # 4,096-character budget: the limit CloudFormation long documented
+  # for inline code (its current reference gives only a 4 MB zip
+  # limit), kept until a larger inline handler is tested live.
   # ----------------------------------------------------------------
   BlobFunction:
     Type: AWS::Lambda::Function
     Properties:
       Handler: index.handler
-      Runtime: python3.12
+      Runtime: python3.13
       Timeout: 10
       MemorySize: 128
       Role: !GetAtt LambdaRole.Arn
       Environment:
         Variables:
           BLOB_BUCKET: !Ref BlobBucket
-          BLOB_PREFIX: "blobs/"
+          BLOB_PREFIX: !FindInMap [Store, Blobs, Prefix]
           BEARER_TOKEN_SHA256: !Ref BearerTokenSha256
       Code:
         ZipFile: |
@@ -167,21 +183,21 @@ Resources:
 
   # AWS also requires a separate lambda:InvokeFunction permission
   # before a NONE-auth Function URL will serve requests at all
-  # (observed live 2026-11-20 on the Terraform deployment: with only
-  # the permission above, every request gets a 403 from AWS before
-  # the handler runs). CloudFormation's Permission resource cannot
-  # attach the lambda:FunctionUrlAuthType condition to this action
-  # either, so this grant is unconditional at the AWS layer. The
-  # handler's bearer-token check is therefore the actual gate for
-  # every invocation path, which the design already assumes: the
-  # function holds nothing but ciphertext access and returns 401
-  # before touching S3.
+  # (observed live 2026-11-20: with only the permission above,
+  # every request gets a 403 from AWS before the handler runs).
+  # InvokedViaFunctionUrl limits this grant to calls that come
+  # through the Function URL, so it doesn't also let any AWS
+  # principal invoke the function directly with an event it writes.
+  # The handler's bearer-token check stays the gate for every
+  # request either way: the function holds nothing but ciphertext
+  # access and returns 401 before touching S3.
   FunctionInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !Ref BlobFunction
       Principal: "*"
+      InvokedViaFunctionUrl: true
 
 Outputs:
   BlobBucketName:

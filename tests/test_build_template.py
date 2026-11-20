@@ -187,20 +187,21 @@ class BuildTemplateTest(unittest.TestCase):
         self.assertNotIn("Traceback", r.stderr)
 
     def test_iam_grant_and_handler_use_the_same_blob_prefix(self):
-        # The prefix is written twice in the skeleton (the IAM Resource and
-        # BLOB_PREFIX) and once as the handler's default; nothing else ties
-        # them together (#11 tracks a single definition).
+        # The prefix is defined once, in the skeleton's Mappings; the role's
+        # grant and BLOB_PREFIX both read it, and the handler's fallback
+        # default matches it.
         import re
         skeleton = (REPO / "template.skeleton.yaml").read_text(encoding="utf-8")
         handler = (REPO / "lambda" / "index.py").read_text(encoding="utf-8")
-        # The non-empty prefix: the bucket policy's "${BlobBucket.Arn}/*" is
-        # the whole bucket, not the grant.
-        resource = re.search(r'\$\{BlobBucket\.Arn\}/([^"*]+)\*', skeleton)
-        env = re.search(r'BLOB_PREFIX:\s*"?([^"\s]+)"?', skeleton)
+        mapped = re.search(r"^Mappings:\n  Store:\n    Blobs:\n      Prefix: (\S+)$", skeleton, re.M)
         default = re.search(r'BLOB_PREFIX",\s*"([^"]+)"', handler)
-        self.assertTrue(resource and env and default)
-        self.assertEqual(resource.group(1), env.group(1))
-        self.assertEqual(env.group(1), default.group(1))
+        self.assertTrue(mapped and default)
+        self.assertEqual(mapped.group(1), default.group(1))
+        self.assertIn('"${BlobBucket.Arn}/${Prefix}*"\n                  - Prefix: !FindInMap [Store, Blobs, Prefix]', skeleton)
+        self.assertIn("BLOB_PREFIX: !FindInMap [Store, Blobs, Prefix]", skeleton)
+        # No hard-coded copy left beside the mapping.
+        self.assertNotIn("/blobs/*", skeleton)
+        self.assertNotIn('BLOB_PREFIX: "', skeleton)
 
     def test_handler_marker_must_appear_exactly_once(self):
         skeleton = self.tmp / "template.skeleton.yaml"
