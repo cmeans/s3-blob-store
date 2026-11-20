@@ -41,9 +41,9 @@ never touches.
   routes use. Bearer check, then GET / PUT / DELETE of
   `blobs/<label>`, plus a `GET /` health route that answers 200 to
   authorized callers.
-- `alternates/terraform/`: the same resources deployed with
+- `alternatives/terraform/`: the same resources deployed with
   Terraform, with its own README.
-- `alternates/bootstrap/`: a shared Terraform state bucket, one per
+- `alternatives/terraform-state-bootstrap/`: a shared Terraform state bucket, one per
   account and region, for the Terraform route (and any other
   Terraform project) if you don't have one already.
 - `SCORECARD.md`: the full STORE-TEST result from the first live
@@ -53,7 +53,7 @@ never touches.
 ## Deploy
 
 The Terraform route's steps are in
-[`alternates/terraform/README.md`](alternates/terraform/README.md).
+[`alternatives/terraform/README.md`](alternatives/terraform/README.md).
 
 ## Caveats, honestly
 

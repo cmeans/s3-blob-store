@@ -52,7 +52,7 @@ jobs:
       - name: cfn-lint
         # Both CloudFormation templates: the store, and the shared
         # Terraform state bucket.
-        run: pipx run cfn-lint==1.59.0 template.yaml alternates/bootstrap/bootstrap.yaml
+        run: pipx run cfn-lint==1.59.0 template.yaml alternatives/terraform-state-bootstrap/bootstrap.yaml
       - name: one handler for both deploy paths
         # The Terraform route zips lambda/index.py itself; a second copy
         # anywhere in the repo, under any name, would be a second source
@@ -71,14 +71,14 @@ jobs:
           fi
           # An attribute line, not a comment, with any spacing fmt gives it.
           # shellcheck disable=SC2016 # a literal Terraform expression, not a shell one
-          grep -qE '^[[:space:]]*source_file[[:space:]]*=[[:space:]]*"\$\{path\.module\}/\.\./\.\./lambda/index\.py"' alternates/terraform/main.tf ||
-            { echo "alternates/terraform/main.tf no longer zips lambda/index.py"; exit 1; }
+          grep -qE '^[[:space:]]*source_file[[:space:]]*=[[:space:]]*"\$\{path\.module\}/\.\./\.\./lambda/index\.py"' alternatives/terraform/main.tf ||
+            { echo "alternatives/terraform/main.tf no longer zips lambda/index.py"; exit 1; }
           # And that zip is the Lambda's only code: one archive_file, and the
           # function's filename is its output. (A drifted, edited copy of the
           # handler can't be caught by content; this catches it being used.)
-          n=$(grep -cE '^[[:space:]]*data[[:space:]]+"archive_file"' alternates/terraform/main.tf || true)
-          [ "$n" = 1 ] || { echo "alternates/terraform/main.tf has $n archive_file blocks, expected 1"; exit 1; }
-          grep -qE '^[[:space:]]*filename[[:space:]]*=[[:space:]]*data\.archive_file\.lambda\.output_path' alternates/terraform/main.tf ||
+          n=$(grep -cE '^[[:space:]]*data[[:space:]]+"archive_file"' alternatives/terraform/main.tf || true)
+          [ "$n" = 1 ] || { echo "alternatives/terraform/main.tf has $n archive_file blocks, expected 1"; exit 1; }
+          grep -qE '^[[:space:]]*filename[[:space:]]*=[[:space:]]*data\.archive_file\.lambda\.output_path' alternatives/terraform/main.tf ||
             { echo "the Lambda's filename isn't data.archive_file.lambda.output_path"; exit 1; }
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff

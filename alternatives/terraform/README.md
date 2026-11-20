@@ -38,7 +38,7 @@ can't create the bucket its own state lives in). That bucket isn't
 part of this store: it's account- and region-level, and can hold the
 state of any number of Terraform projects, each under its own key.
 Use one you already have, or create one with the shared bootstrap
-stack, [`../bootstrap/bootstrap.yaml`](../bootstrap/bootstrap.yaml):
+stack, [`../terraform-state-bootstrap/bootstrap.yaml`](../terraform-state-bootstrap/bootstrap.yaml):
 a small CloudFormation stack that creates only that bucket, named
 `tfstate-<account>-<region>`, versioned, and kept if the stack is
 deleted.
@@ -64,14 +64,14 @@ Run the commands from the repo root.
 1. **Have a state bucket.** If you already keep Terraform state in
    an S3 bucket in this account, use it, and skip to step 2 with its
    name and region. Otherwise, once per account and region, create a
-   stack from `alternates/bootstrap/bootstrap.yaml` in the
+   stack from `alternatives/terraform-state-bootstrap/bootstrap.yaml` in the
    CloudFormation console (no parameters needed), and note its
    `StateBucketName` and `Region` outputs. Keep that stack when you
    remove the store: other Terraform projects may share its bucket.
 2. **Initialize Terraform** with that bucket and region:
 
    ```
-   terraform -chdir=alternates/terraform init \
+   terraform -chdir=alternatives/terraform init \
      -backend-config="bucket=<StateBucketName>" \
      -backend-config="region=<Region>"
    ```
@@ -94,8 +94,8 @@ Run the commands from the repo root.
 4. **Plan and apply.**
 
    ```
-   terraform -chdir=alternates/terraform plan
-   terraform -chdir=alternates/terraform apply
+   terraform -chdir=alternatives/terraform plan
+   terraform -chdir=alternatives/terraform apply
    ```
 
    The plan is 12 resources: the bucket and its configuration, the
@@ -152,7 +152,7 @@ managing it from this directory:
 single `lambda/index.py` file rather than the old `lambda/`
 directory, but the archive is the same (one `index.py` entry, same
 bytes and mode), so its hash, and the Lambda, are unchanged. The
-bootstrap template moved to `alternates/bootstrap/`, and its
+bootstrap template moved to `alternatives/terraform-state-bootstrap/`, and its
 description, `Project` tag (now removed) and output descriptions
 changed. Its bucket is the same; your existing bootstrap stack needs
 no update, and it's safe to leave it as it is.
