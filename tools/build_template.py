@@ -9,6 +9,10 @@ that line with the handler source, indented to match.
 Guards (the reason this script exists):
   - CloudFormation's ZipFile limit is 4,096 characters. The build
     FAILS if the handler source exceeds it, and warns past 4,000.
+  - CloudFormation's TemplateBody limit is 51,200 bytes. The one-paste
+    deploy passes the template as a body (`aws cloudformation deploy
+    --template-file` with no S3 bucket), so the build FAILS if the
+    generated template exceeds it, and warns past 46,080 (90%).
   - After generating, the script extracts the ZipFile block back
     out of template.yaml and checks it matches lambda/index.py
     character for character, so a committed template.yaml can be
@@ -27,6 +31,8 @@ HANDLER = ROOT / "lambda" / "index.py"
 OUTPUT = ROOT / "template.yaml"
 ZIPFILE_LIMIT = 4096
 ZIPFILE_WARN = 4000
+TEMPLATE_BODY_LIMIT = 51200
+TEMPLATE_BODY_WARN = 46080
 
 
 def indent_of(line):
@@ -81,15 +87,29 @@ def main():
     if extracted != handler:
         raise SystemExit("FAIL: ZipFile block in the generated template does "
                          "not match lambda/index.py")
+    size = len(text.encode("utf-8"))
+    if size > TEMPLATE_BODY_LIMIT:
+        raise SystemExit(
+            f"FAIL: the generated template is {size} bytes, over "
+            f"CloudFormation's TemplateBody limit of {TEMPLATE_BODY_LIMIT}. "
+            f"The one-paste deploy sends the template as a body, so it "
+            f"would need an S3 bucket past this size. template.yaml was "
+            f"not written."
+        )
+    if size > TEMPLATE_BODY_WARN:
+        print(f"warning: the generated template is {size} bytes; "
+              f"the TemplateBody limit is {TEMPLATE_BODY_LIMIT}", file=sys.stderr)
+    sizes = (f"handler {len(handler)} of {ZIPFILE_LIMIT} ZipFile characters; "
+             f"template {size} of {TEMPLATE_BODY_LIMIT} TemplateBody bytes")
     if "--check" in sys.argv:
+        if not OUTPUT.is_file():
+            raise SystemExit("FAIL: template.yaml is missing; run tools/build_template.py")
         if OUTPUT.read_text(encoding="utf-8") != text:
             raise SystemExit("FAIL: template.yaml is stale; run tools/build_template.py")
-        print(f"ok: template.yaml is current; handler {len(handler)} of "
-              f"{ZIPFILE_LIMIT} ZipFile characters")
+        print(f"ok: template.yaml is current; {sizes}")
         return 0
     OUTPUT.write_text(text, encoding="utf-8")
-    print(f"wrote template.yaml; handler {len(handler)} of {ZIPFILE_LIMIT} "
-          f"ZipFile characters; ZipFile round-trip verified")
+    print(f"wrote template.yaml; {sizes}; ZipFile round-trip verified")
     return 0
 
 
