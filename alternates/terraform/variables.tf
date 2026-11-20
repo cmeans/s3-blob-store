@@ -32,7 +32,7 @@ variable "region" {
 }
 
 variable "name_suffix" {
-  description = "Optional suffix appended to the derived blob bucket name, for a second instance in the same account. Leave empty normally."
+  description = "Optional suffix appended to the derived blob bucket name only. Leave empty normally. It does not make a second Terraform store possible in the same account and region: the role and function names, and the state key, are fixed."
   type        = string
   default     = ""
 }
