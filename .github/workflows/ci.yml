@@ -60,7 +60,9 @@ jobs:
           set -euo pipefail
           id=$(git rev-parse :lambda/index.py)
           listing=$(git ls-files -s)
-          copies=$(awk -v id="$id" '$2 == id && $4 != "lambda/index.py" { print $4 }' <<<"$listing")
+          # Fields are "mode id stage<TAB>path", so split on the tab first:
+          # a path may contain spaces.
+          copies=$(awk -F'\t' -v id="$id" '{ split($1, f, " ") } f[2] == id && $2 != "lambda/index.py" { print $2 }' <<<"$listing")
           if [ -n "$copies" ]; then
             echo "a second copy of lambda/index.py is tracked: $copies"
             exit 1
@@ -69,6 +71,13 @@ jobs:
           # shellcheck disable=SC2016 # a literal Terraform expression, not a shell one
           grep -qE '^[[:space:]]*source_file[[:space:]]*=[[:space:]]*"\$\{path\.module\}/\.\./\.\./lambda/index\.py"' alternates/terraform/main.tf ||
             { echo "alternates/terraform/main.tf no longer zips lambda/index.py"; exit 1; }
+          # And that zip is the Lambda's only code: one archive_file, and the
+          # function's filename is its output. (A drifted, edited copy of the
+          # handler can't be caught by content; this catches it being used.)
+          n=$(grep -cE '^[[:space:]]*data[[:space:]]+"archive_file"' alternates/terraform/main.tf || true)
+          [ "$n" = 1 ] || { echo "alternates/terraform/main.tf has $n archive_file blocks, expected 1"; exit 1; }
+          grep -qE '^[[:space:]]*filename[[:space:]]*=[[:space:]]*data\.archive_file\.lambda\.output_path' alternates/terraform/main.tf ||
+            { echo "the Lambda's filename isn't data.archive_file.lambda.output_path"; exit 1; }
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff
       - name: terraform validate

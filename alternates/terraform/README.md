@@ -8,15 +8,16 @@ anything changes. The CloudFormation template at the repo root
 default route; this one deploys the same resources and the same
 handler, `lambda/index.py` at the repo root.
 
-This route deploys **one store per account and region**: its IAM
-role (`handoff-blob-store-lambda`, named per account) and Lambda
-function (`handoff-blob-store`, per region) have fixed names, and so
-does its state key. `name_suffix` changes only the bucket's name. For
-a second store beside the first, deploy the CloudFormation template
-as a second stack with its own `NameSuffix`; it generates its role
-and function names. Don't deploy both routes in the same account and
-region without a suffix either: they derive the same bucket name
-(`handoff-blobs-<account>-<region>`).
+This route deploys **one store per AWS account**: its IAM role
+(`handoff-blob-store-lambda`) has a fixed name, and IAM role names
+are account-wide, across every region. (Its Lambda function,
+`handoff-blob-store`, is fixed per region too.) `name_suffix` changes
+only the bucket's name. For a second store in the same account, in
+any region, deploy the CloudFormation template as a second stack; it
+generates its role and function names, and needs its own `NameSuffix`
+only in the same region as the first. Don't deploy both routes in the
+same account and region without a suffix either: they derive the same
+bucket name (`handoff-blobs-<account>-<region>`).
 
 ## What it creates
 
