@@ -53,16 +53,21 @@ jobs:
         run: pipx run cfn-lint==1.59.0 template.yaml
       - name: one handler for both deploy paths
         # The Terraform route zips lambda/index.py itself; a second copy
-        # anywhere in the repo would be a second source that can drift.
+        # anywhere in the repo, under any name, would be a second source
+        # that can drift. Copies are found by content (git blob id), and a
+        # failing git command fails the step.
         run: |
           set -euo pipefail
-          copies=$(git ls-files -- '*index.py' | grep -vx 'lambda/index.py' || true)
+          id=$(git rev-parse :lambda/index.py)
+          listing=$(git ls-files -s)
+          copies=$(awk -v id="$id" '$2 == id && $4 != "lambda/index.py" { print $4 }' <<<"$listing")
           if [ -n "$copies" ]; then
-            echo "a second handler copy is tracked: $copies"
+            echo "a second copy of lambda/index.py is tracked: $copies"
             exit 1
           fi
+          # An attribute line, not a comment, with any spacing fmt gives it.
           # shellcheck disable=SC2016 # a literal Terraform expression, not a shell one
-          grep -qF 'source_file = "${path.module}/../../lambda/index.py"' alternates/terraform/main.tf ||
+          grep -qE '^[[:space:]]*source_file[[:space:]]*=[[:space:]]*"\$\{path\.module\}/\.\./\.\./lambda/index\.py"' alternates/terraform/main.tf ||
             { echo "alternates/terraform/main.tf no longer zips lambda/index.py"; exit 1; }
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff

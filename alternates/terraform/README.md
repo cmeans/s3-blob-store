@@ -3,10 +3,15 @@
 The same store as the repo's CloudFormation template, deployed with
 Terraform from your own machine. Use it if you'd rather keep the store
 in Terraform, run every step yourself, and have a plan to read before
-anything changes. The CloudFormation one-paste in the [main
-README](../../README.md) is the tested default; this route deploys
-the same resources and the same handler, `lambda/index.py` at the
-repo root.
+anything changes. The CloudFormation template at the repo root
+(`template.yaml`, see the [main README](../../README.md)) is the
+default route; this one deploys the same resources and the same
+handler, `lambda/index.py` at the repo root.
+
+Use one route per account and region. Both derive the same blob
+bucket name (`handoff-blobs-<account>-<region>`), so a second store
+beside the first needs `name_suffix` here (or `NameSuffix` in the
+template).
 
 ## What it creates
 
@@ -57,13 +62,17 @@ Run the commands from the repo root.
      -backend-config="region=<Region>"
    ```
 
-3. **Generate the bearer token.** Keep the token in a password
-   manager. Only its SHA-256 digest goes to Terraform:
+3. **Generate the bearer token.** Only its SHA-256 digest goes to
+   Terraform:
 
    ```
    read TOKEN DIGEST < <(python3 -c 'import secrets,hashlib;t=secrets.token_hex(32);print(t,hashlib.sha256(t.encode()).hexdigest())')
    export TF_VAR_bearer_token_sha256=$DIGEST
    ```
+
+   Save the token in a password manager now: `echo "$TOKEN"` shows
+   it once, then `clear` the screen. The password manager is the only
+   copy after step 5.
 
    To deploy somewhere other than `us-east-2`, also
    `export TF_VAR_region=<region>`.
@@ -94,7 +103,7 @@ Run the commands from the repo root.
    Expected, in order: `401`, `stored`, `dummy`, `deleted`, `404`.
    Then `unset TOKEN DIGEST TF_VAR_bearer_token_sha256`.
 
-6. **Give your agent the token** through whatever secure credential
+6. **Give your agent the token** (from your password manager) through whatever secure credential
    mechanism your agent platform provides, scoped to the function
    URL's host, as a bearer header. Never put the token in a file, a
    template, or a chat.
@@ -109,12 +118,23 @@ Before this move, the Terraform files were at `terraform/` and
 `bootstrap/`, `backend.tf` named the state bucket itself, and the
 state key was `muse-field-kit/handoff-blob-store/terraform.tfstate`.
 A running deployment is unaffected by the repo changing. To keep
-managing it from this directory, initialize against your existing
-state: pass your bucket and region as in step 2, plus
-`-backend-config="key=muse-field-kit/handoff-blob-store/terraform.tfstate"`,
-and set `TF_VAR_region` if you didn't deploy in `us-east-2`.
+managing it from this directory:
 
-`plan` should then show no changes. The zip is now built from the
+1. Note the `bucket` and `region` from your edited
+   `terraform/backend.tf`. That edit makes `git pull` stop on a
+   conflict (the file was moved and rewritten here). Keep your copy
+   of the two values, take this version, and delete the old
+   `terraform/` directory, including `terraform/.terraform/`.
+2. Initialize against your existing state: pass your bucket and
+   region as in step 2, plus
+   `-backend-config="key=muse-field-kit/handoff-blob-store/terraform.tfstate"`.
+   Set `TF_VAR_region` if you didn't deploy in `us-east-2`, and
+   `TF_VAR_bearer_token_sha256` to your current token's digest.
+3. Run `plan`. **If it shows anything to add or destroy, stop and
+   don't apply:** the key, bucket or region doesn't match your
+   state, and an apply would try to create a second store.
+
+`plan` should show no changes. The zip is now built from the
 single `lambda/index.py` file rather than the old `lambda/`
 directory, but the archive is the same (one `index.py` entry, same
 bytes and mode), so its hash, and the Lambda, are unchanged. The
