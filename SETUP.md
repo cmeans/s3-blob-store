@@ -47,10 +47,11 @@ interchangeable.
 
 ## Verify the wiring
 
-Health check, with the token:
+Health check, with `URL` set to the FunctionUrl and `TOKEN` set
+without typing it (see Manual use, below):
 
 ```
-curl -s -H "Authorization: Bearer <token>" <FunctionUrl>
+curl -s -H "Authorization: Bearer $TOKEN" "$URL"
 ```
 
 Expected: `ok` (HTTP 200). Without the header, the same
@@ -105,21 +106,28 @@ round trips are test-verified to 64,000 characters (see
 
 ## Manual use (curl)
 
+Set `URL` to the FunctionUrl and `TOKEN` without typing the
+token on the command line, for example `read -rs TOKEN` and a
+paste from your password manager (a typed token stays in your
+shell history). `-f` makes curl fail, and write nothing, on a
+401 or 404, so an error reply can't be mistaken for a blob.
+
 ```
 # store (from a file, so the content never appears in shell history as an argument)
-curl -s -X PUT -H "Authorization: Bearer <token>" --data-binary @blob.txt "<FunctionUrl>blobs/<label>"
+curl -sf -X PUT -H "Authorization: Bearer $TOKEN" --data-binary @blob.txt "$URL"blobs/<label>
 
 # fetch (to a file; the same reasoning)
-curl -s -H "Authorization: Bearer <token>" "<FunctionUrl>blobs/<label>" -o blob.txt
+curl -sf -H "Authorization: Bearer $TOKEN" "$URL"blobs/<label> -o blob.txt
 
 # delete
-curl -s -X DELETE -H "Authorization: Bearer <token>" "<FunctionUrl>blobs/<label>"
+curl -sf -X DELETE -H "Authorization: Bearer $TOKEN" "$URL"blobs/<label>
 ```
 
 ## Rotation
 
 Re-run the deploy one-paste from `SKILL.md` (Path A step 3 or
-Path B). It generates a fresh token and digest and updates
+Path B), with the store's own stack name if it was deployed
+under a suffix (SKILL.md, Isolation by name). It generates a fresh token and digest and updates
 the stack in place; the FunctionUrl does not change. Then:
 
 1. Put the new token in the password manager.
@@ -138,8 +146,10 @@ the complete remedy.
 
 - The token's SHA-256 digest is the only form of it in AWS
   (a NoEcho stack parameter). AWS never holds the token.
-- The Lambda's IAM role is the only identity with any access
-  to the bucket, scoped to that bucket. The bucket blocks all
+- The Lambda's IAM role is the only identity the stack grants
+  access to the bucket, scoped to that bucket. The account's
+  administrators (and root) can still reach it through S3
+  itself, so protect those logins too. The bucket blocks all
   public access and denies insecure transport.
 - The Function URL itself is public (it has to be, for your
   assistant to reach it from anywhere) — the token check is

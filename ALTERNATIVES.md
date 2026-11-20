@@ -6,9 +6,10 @@ nothing hosted, and no account preparation beyond the AWS
 account itself, and it is the path releases are tested on
 (`SCORECARD.md`).
 
-The alternatives below produce the **identical stack** — the
-same 7 resources from the same `template.yaml` — and are kept
-for people whose circumstances fit them better. They are
+Sections 1 to 3 below produce the **identical stack** — the
+same 7 resources from the same `template.yaml`; section 4,
+Terraform, deploys the same store with its own resources; and
+all are kept for people whose circumstances fit them better. They are
 documented, not supported: if one of them and the one-paste
 disagree, the one-paste is right.
 
@@ -23,7 +24,10 @@ The first line is the token — into a password manager
 immediately. The second is the SHA-256 digest, the only form
 that ever goes into a stack parameter. Whichever path you
 take, finish with the endpoint check and wiring in `README.md`
-steps 5–6 / `SETUP.md`.
+steps 5–6 / `SETUP.md`. These paths create no token file, so in
+step 5 set `TOKEN` without typing it (`read -rs TOKEN`, then a
+paste from the password manager) instead of the `cat` line, and
+leave out the final `rm`.
 
 ## 1. Launch Stack (hosted template link)
 
@@ -31,7 +35,7 @@ The classic AWS one-click: a link of the form
 `https://console.aws.amazon.com/cloudformation/home#/stacks/quickcreate?templateURL=<hosted template.yaml>`
 opens the console with the template loaded; you paste the
 digest into the `BearerTokenSha256` parameter, tick the
-acknowledgement that the stack creates an IAM role, and
+acknowledgment that the stack creates an IAM role, and
 create the stack.
 
 Why it is not the main path:
@@ -83,9 +87,9 @@ aws cloudformation deploy --template-file template.yaml --stack-name s3-blob-sto
 ```
 
 Generate the token and digest with the generator above and
-handle the token as in `README.md` steps 4 and 5 (password
-manager, no terminal echo beyond the one generation, which
-you should clear from scrollback). Run `README.md` step 3's
+handle the token as above (password manager, no terminal
+echo beyond the one generation, which you should clear from
+scrollback). Run `README.md` step 3's
 check for an existing stack first: deploying over one rotates
 its token. This path's only downside
 is the prerequisite the main path exists to avoid: a local

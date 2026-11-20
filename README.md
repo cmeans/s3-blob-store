@@ -1,5 +1,8 @@
 # s3-blob-store
 
+[![CI](https://github.com/cmeans/s3-blob-store/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/cmeans/s3-blob-store/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/cmeans/s3-blob-store)](LICENSE)
+
 A dedicated store for ciphertext blobs, built on Amazon S3 with a
 Lambda Function URL as its only front door. It was built and tested
 as a store for the `encrypted-credential-handoff` pattern in
@@ -115,8 +118,8 @@ nothing installed on your machine. The whole deployment is one
 line, pasted into a browser shell. (Other ways to stand the same
 resources up — a hosted Launch Stack link, a console upload, a
 local CLI, the earlier Terraform version — are in
-`ALTERNATIVES.md`. They all produce the identical stack; the
-one-paste below is the supported path.)
+`ALTERNATIVES.md`. All but Terraform deploy this same template;
+the one-paste below is the supported path.)
 
 1. **Create the AWS account, on the Paid plan, with root MFA.**
    Start at https://aws.amazon.com/free/. Since July 2025 new
@@ -151,7 +154,11 @@ one-paste below is the supported path.)
    the old one starts getting 401 (to rotate on purpose, see the
    caveats). `ROLLBACK_COMPLETE` is a failed first deploy: delete
    it with `aws cloudformation delete-stack --stack-name
-   s3-blob-store`, wait a minute, and start this step again. If
+   s3-blob-store`, then `aws cloudformation wait
+   stack-delete-complete --stack-name s3-blob-store`, and start
+   this step again. A status ending in `_IN_PROGRESS`: wait, then
+   check again. `DELETE_FAILED`: see the caveats on deleting the
+   stack. If
    you already run a store from the Terraform route in this
    account and region, see `SKILL.md`'s "Isolation by name" for
    a suffixed stack: both routes derive the same bucket name.
@@ -231,9 +238,11 @@ credential flow (root or an admin user — either works) and
 supply an MFA code when asked; it runs the same paste, takes
 the token out the same way, and verifies the endpoint itself.
 That path, and the assisted account creation, are written up
-for assistants in `SKILL.md`. Both paths were exercised
-end-to-end before this README was published; results in
-`SCORECARD.md`.
+for assistants in `SKILL.md`. Both deploy paths were exercised
+end to end before this README was published (results in
+`SCORECARD.md`), with step 3's pre-check and step 5's
+fresh-label check added since; the assisted account creation
+hasn't been run yet.
 
 ## Caveats, honestly
 
@@ -260,7 +269,13 @@ end-to-end before this README was published; results in
 - **Deleting the stack** removes the function, role and URL. The
   bucket is only deleted once it is empty — S3 refuses to delete a
   non-empty bucket, so a stack delete with blobs still in it
-  leaves the bucket (and your blobs) standing, by design.
+  leaves the bucket (and your blobs) standing, by design, and the
+  stack in `DELETE_FAILED`. That bucket keeps the default name, so
+  a new default stack would fail on it. To start over, either
+  empty it (destroying every blob) and delete the stack again, or
+  delete the stack with `--retain-resources BlobBucket` and deploy
+  the new store with a `NameSuffix` (`SKILL.md`, Isolation by
+  name). Not yet run end to end.
 - **Cost** at handoff scale is effectively zero: a handful of small
   S3 objects and a rarely-invoked Lambda.
 

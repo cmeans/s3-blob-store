@@ -24,8 +24,9 @@ capability instead of a one-off.
 The store in one paragraph: a private S3 bucket behind a Lambda
 Function URL. The Lambda checks a bearer token (only its SHA-256
 digest exists in AWS) and serves `GET /` (health) and
-PUT/GET/DELETE `/blobs/<label>`. Nothing else can reach the
-bucket. It is built to hold small encrypted blobs — credentials
+PUT/GET/DELETE `/blobs/<label>`. Nothing else the stack creates
+can reach the bucket (the account's administrators still can,
+through S3 itself). It is built to hold small encrypted blobs — credentials
 an agent must not keep in its own context or memory.
 
 ## Ground rules (all paths)
@@ -49,8 +50,13 @@ an agent must not keep in its own context or memory.
   data, and cleanup is one stack deletion. In the one-paste,
   change both `--stack-name s3-blob-store` occurrences to
   `s3-blob-store-<x>` and add `NameSuffix=<x>` after the digest
-  in `--parameter-overrides` (`<x>`: lowercase letters, digits
-  and hyphens).
+  in `--parameter-overrides`. Use the same stack name for that
+  store's pre-check, rotation and teardown too: run against the
+  default name, they'd miss it (and a "rotation" would create a
+  second, default store). `<x>`: 1 to 21 lowercase letters,
+  digits and hyphens, not starting or ending with a hyphen
+  (longer suffixes can overrun S3's 63-character bucket-name
+  limit in long region names; see #11).
 - **Restarts and destructive steps belong to the user** unless
   they have explicitly delegated them. Deleting a stack deletes
   its bucket's contents' only access path; confirm first unless
@@ -79,7 +85,13 @@ Give the user these steps; they take about five minutes.
    for a rotation (Operations, below). A `ROLLBACK_COMPLETE`
    status is a failed first deploy: with the user's OK, delete it
    (`aws cloudformation delete-stack --stack-name s3-blob-store`),
-   wait for the deletion, and re-run. If the account already has
+   wait with `aws cloudformation wait stack-delete-complete
+   --stack-name s3-blob-store`, and re-run. A status ending in
+   `_IN_PROGRESS` means something is still running: wait for it,
+   then check again. `DELETE_FAILED` is a deleted store whose
+   bucket still held blobs (Operations, Teardown): its bucket name
+   is taken, so a new default stack would fail too. Ask the user
+   whether the blobs matter, then see Teardown for the way out. If the account already has
    a store from the Terraform route in this region, use a
    `NameSuffix` (see Isolation by name): both routes derive the
    same bucket name.
@@ -142,15 +154,15 @@ end-to-end 2026-11-20.
      any paste that mutates state (e.g. re-check a file you
      deleted is actually gone).
    - Long waits (~100 s for the deploy) are normal.
-4. **Token handling.** Run the endpoint checks (step 5) in
-   CloudShell first, reading the token from the file as Path A
-   step 5 does. Then hand the token to the user without reading
-   it yourself: tell them to use Actions → Download file
+4. **Token handling.** First hand the token to the user without
+   reading it yourself: tell them to use Actions → Download file
    `/tmp/s3-blob-store-token.txt` (or, if you drive the browser,
    download it and give the user the file), save it to their
    password manager, and enter it on your platform's secure
-   registration page (SETUP.md). Then delete the CloudShell copy
-   and any downloaded copy. If your platform can only register
+   registration page (SETUP.md). Only then run the endpoint
+   checks (step 5) in CloudShell, reading the token from the file
+   as Path A step 5 does; that step ends by deleting the file.
+   Delete any downloaded copy too. If your platform can only register
    the token by reading the file, say so to the user first: the
    token then passes through your working files, and must be
    deleted from them once the registration is verified. Either
@@ -160,7 +172,9 @@ end-to-end 2026-11-20.
 6. **Optional but recommended — IAM bootstrap.** If you signed
    in as root, offer to create a dedicated IAM user for future
    assistant work so root is not the standing login (commands
-   in the appendix). Proven live 2026-11-20.
+   in the appendix). Proven live 2026-11-20 as far as creating
+   the user, attaching and detaching the policy, and deleting it;
+   the console password and MFA steps have not been run.
 7. **Cleanup when testing** (a scratch stack deployed under its
    own name, per Isolation by name; never the user's
    `s3-blob-store`): delete that stack, then confirm the
@@ -241,7 +255,11 @@ afterwards so the bucket is left empty of test data.
   `DELETE_FAILED` (expected; not yet observed). Empty the
   bucket only for a scratch stack, and only with the user's go:
   `aws s3 rm s3://<BlobBucketName>/blobs/ --recursive`, then
-  delete the stack again.
+  delete the stack again. To keep the blobs instead, delete the
+  stack with `--retain-resources BlobBucket` (the bucket stays,
+  outside any stack) and deploy any new store with a
+  `NameSuffix`, since the old bucket keeps the default name.
+  (Not yet run end to end.)
 
 ## Release checklist (maintainers)
 
