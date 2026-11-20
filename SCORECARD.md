@@ -124,9 +124,9 @@ verified live).
   `aws_lambda_permission` cannot attach the `FunctionUrlAuthType`
   condition to the second one, so that grant is unconditional at the
   AWS layer and the handler's token check is the real gate. (The
-  CloudFormation template grants it unconditionally too;
-  [#11](https://github.com/cmeans/s3-blob-store/issues/11) tracks
-  scoping it.)
+  CloudFormation template now scopes it with `InvokedViaFunctionUrl`,
+  [#11](https://github.com/cmeans/s3-blob-store/issues/11); the
+  AWS provider version the Terraform route pins can't.)
 - S3 answers a `GetObject` for a missing key with **AccessDenied**,
   not `NoSuchKey`, when the caller lacks `s3:ListBucket`. The handler
   maps that to 404 rather than granting list access the store does

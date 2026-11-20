@@ -235,6 +235,7 @@ deleted; elsewhere, through the store's registered connection.
 | Round trip 64,000 characters | byte-identical |
 | Replace a label, then GET | new content served |
 | DELETE, then GET | `deleted`, then 404 |
+| PUT bytes that aren't UTF-8, with `Content-Type: text/plain` | record what comes back (400 `body must be UTF-8 text` expected; a 200 means the Function URL passed it as text), and GET the label to see what was stored; delete it after |
 
 Payloads are UTF-8 text (ASCII is simplest), as the store
 expects (SETUP.md, Bodies): random binary fails, and that would
@@ -280,7 +281,7 @@ afterwards so the bucket is left empty of test data.
       it): `template.yaml` matches a fresh build from the
       skeleton + `lambda/index.py`, within the 4,096-character
       inline-code budget and the 51,200-byte TemplateBody limit
-      (it is ~11.6 KB).
+      (it is about 13 KB).
 - [ ] STORE-TEST passes against a scratch stack deployed from
       the exact generated template (fresh `NameSuffix`).
 - [ ] The release **attaches `template.yaml` and `deploy.sh` as

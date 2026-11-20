@@ -145,7 +145,7 @@ resource "aws_lambda_function" "blobs" {
   function_name = "handoff-blob-store"
   role          = aws_iam_role.lambda.arn
   handler       = "index.handler"
-  runtime       = "python3.12"
+  runtime       = "python3.13"
   timeout       = 10
   memory_size   = 128
 
@@ -179,11 +179,13 @@ resource "aws_lambda_permission" "function_url_public" {
 # only the permission above, every request — authenticated or not —
 # gets a 403 from AWS before the handler runs (observed live
 # 2026-11-20). AWS's own console scopes this grant with a
-# lambda:FunctionUrlAuthType=NONE condition, but Terraform's
-# aws_lambda_permission cannot express that condition on the
-# InvokeFunction action (it rejects FunctionUrlAuthType for it,
-# also observed 2026-11-20), so this grant is unconditional at the
-# AWS layer. The handler's bearer-token check is therefore the
+# lambda:FunctionUrlAuthType=NONE condition. The AWS provider this
+# route pins (~> 5.0) can't express that on the InvokeFunction action
+# (it rejects function_url_auth_type for it, observed 2026-11-20);
+# provider 6.28.0 added invoked_via_function_url, which the
+# CloudFormation template's equivalent uses; moving this route to
+# it is #20. So here the grant is unconditional at the AWS
+# layer. The handler's bearer-token check is therefore the
 # actual gate for every invocation path, which the design already
 # assumes: the function holds nothing but ciphertext access, and
 # returns 401 before touching S3.

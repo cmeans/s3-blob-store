@@ -73,9 +73,13 @@ and any method gets 401 before anything else is checked.
 
 Errors: 401 `unauthorized` (missing or wrong token), 404
 `not found` (no blob at the label, or no such route), 405
-`method not allowed`, 400 (label fails validation). A body
-that isn't UTF-8 currently fails with a server error rather
-than a 400 ([#12](https://github.com/cmeans/s3-blob-store/issues/12)).
+`method not allowed`, 400 `invalid label` (label fails
+validation), 400 `body must be UTF-8 text` (a body the Function
+URL hands over base64-encoded that isn't valid base64 or UTF-8,
+or a text body that can't be encoded as UTF-8). How a non-UTF-8
+body sent as text (for example `text/plain`) arrives hasn't been
+tested yet ([#12](https://github.com/cmeans/s3-blob-store/issues/12)):
+send UTF-8 text, as Bodies below says.
 
 **Labels:** letters, digits, dot, dash, underscore, starting
 with a letter or digit; at most 128 characters. Colons and slashes are not allowed — if your
