@@ -50,7 +50,9 @@ jobs:
       - name: build tool tests
         run: python3 -m unittest discover -s tests -v
       - name: cfn-lint
-        run: pipx run cfn-lint==1.59.0 template.yaml
+        # Both CloudFormation templates: the store, and the shared
+        # Terraform state bucket.
+        run: pipx run cfn-lint==1.59.0 template.yaml alternates/bootstrap/bootstrap.yaml
       - name: one handler for both deploy paths
         # The Terraform route zips lambda/index.py itself; a second copy
         # anywhere in the repo, under any name, would be a second source

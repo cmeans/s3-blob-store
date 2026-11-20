@@ -21,16 +21,11 @@ bucket name (`handoff-blobs-<account>-<region>`).
 
 ## What it creates
 
-- `bootstrap/bootstrap.yaml`: a small CloudFormation stack that
-  creates only the Terraform state bucket. It has to exist before
-  Terraform can run, so it is the one piece Terraform doesn't manage.
-  Its name is derived from your account ID and region, so it doesn't
-  collide with anyone else's.
-- The `.tf` files here, everything else: the blob bucket, the Lambda,
-  its scoped role, and the Function URL.
+- The `.tf` files here: the blob bucket, the Lambda, its scoped
+  role, and the Function URL.
   - `backend.tf`: S3 backend with native state locking (Terraform 1.11
-    or later). The bucket and region come from the bootstrap stack at
-    `init` time, so the file needs no edits. State is never committed.
+    or later). The state bucket and its region are given at `init`
+    time, so the file needs no edits. State is never committed.
   - `main.tf`: the resources. The Lambda's code is zipped from
     `../../lambda/index.py`.
   - `variables.tf`: the token digest, the region (default
@@ -38,11 +33,21 @@ bucket name (`handoff-blobs-<account>-<region>`).
   - `outputs.tf`: bucket name, function URL, role ARN. None are
     secrets.
 
+It needs a Terraform state bucket, which it doesn't create (Terraform
+can't create the bucket its own state lives in). That bucket isn't
+part of this store: it's account- and region-level, and can hold the
+state of any number of Terraform projects, each under its own key.
+Use one you already have, or create one with the shared bootstrap
+stack, [`../bootstrap/bootstrap.yaml`](../bootstrap/bootstrap.yaml):
+a small CloudFormation stack that creates only that bucket, named
+`tfstate-<account>-<region>`, versioned, and kept if the stack is
+deleted.
+
 ### Two buckets, opposite versioning
 
 | Bucket | Versioning | Why |
 | --- | --- | --- |
-| Terraform state bucket (bootstrap) | **On** | Old state versions are the recovery path if a write goes bad. |
+| Terraform state bucket (shared) | **On** | Old state versions are the recovery path if a write goes bad. |
 | Blob bucket (Terraform) | **Off** | A replaced or deleted blob must actually be gone through the API. |
 
 State isn't stored in the blob bucket or through the blob store. That
@@ -56,11 +61,14 @@ credentials, Terraform 1.11 or later, and Python 3. Your credentials
 stay on your machine; nothing in this repo needs them at runtime.
 Run the commands from the repo root.
 
-1. **Bootstrap the state bucket.** In the CloudFormation console,
-   create a stack from `alternates/terraform/bootstrap/bootstrap.yaml`.
-   No parameters are needed. Note the `StateBucketName` and `Region`
-   outputs.
-2. **Initialize Terraform** with those two values:
+1. **Have a state bucket.** If you already keep Terraform state in
+   an S3 bucket in this account, use it, and skip to step 2 with its
+   name and region. Otherwise, once per account and region, create a
+   stack from `alternates/bootstrap/bootstrap.yaml` in the
+   CloudFormation console (no parameters needed), and note its
+   `StateBucketName` and `Region` outputs. Keep that stack when you
+   remove the store: other Terraform projects may share its bucket.
+2. **Initialize Terraform** with that bucket and region:
 
    ```
    terraform -chdir=alternates/terraform init \
@@ -144,6 +152,7 @@ managing it from this directory:
 single `lambda/index.py` file rather than the old `lambda/`
 directory, but the archive is the same (one `index.py` entry, same
 bytes and mode), so its hash, and the Lambda, are unchanged. The
-bootstrap stack's `Project` tag and output descriptions also changed;
-they apply only if you update that stack, and it's safe to leave it
-as it is.
+bootstrap template moved to `alternates/bootstrap/`, and its
+description, `Project` tag (now removed) and output descriptions
+changed. Its bucket is the same; your existing bootstrap stack needs
+no update, and it's safe to leave it as it is.

@@ -1,9 +1,10 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Bootstrap for the s3-blob-store Terraform route.
-  Creates ONLY the S3 bucket that will hold Terraform state.
-  The blob bucket, Lambda function, and IAM role are managed by
-  Terraform afterwards and are NOT created by this stack.
+  A shared Terraform state bucket for this account and region.
+  Creates ONLY the S3 bucket that holds Terraform state, for any
+  number of Terraform projects, each under its own state key.
+  Deploy it once per account and region; skip it if you already
+  have a state bucket. It creates none of a project's resources.
   The state bucket is retained if this stack is deleted.
 
 Parameters:
@@ -56,8 +57,6 @@ Resources:
       Tags:
         - Key: Purpose
           Value: terraform-state
-        - Key: Project
-          Value: s3-blob-store
 
   TerraformStateBucketPolicy:
     Type: AWS::S3::BucketPolicy

@@ -42,8 +42,10 @@ never touches.
   `blobs/<label>`, plus a `GET /` health route that answers 200 to
   authorized callers.
 - `alternates/terraform/`: the same resources deployed with
-  Terraform, with its own bootstrap stack for the state bucket and
-  its own README.
+  Terraform, with its own README.
+- `alternates/bootstrap/`: a shared Terraform state bucket, one per
+  account and region, for the Terraform route (and any other
+  Terraform project) if you don't have one already.
 - `SCORECARD.md`: the full STORE-TEST result from the first live
   deployment, including the caveats and the two AWS behaviors that
   bit us on the way.
