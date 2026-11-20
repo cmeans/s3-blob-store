@@ -142,6 +142,12 @@ class HandlerTest(unittest.TestCase):
                 r = mod.handler(_event("GET", "/", auth), None)
                 self.assertEqual((r["statusCode"], r["body"]), (401, "unauthorized"))
 
+    def test_text_body_that_cannot_be_utf8_encoded_is_a_400(self):
+        auth = f"Bearer {TOKEN}"
+        body = "caf" + chr(0xDCE9)
+        self.assertEqual(self.call("PUT", "/blobs/s", auth, body=body), (400, "body must be UTF-8 text"))
+        self.assertNotIn("blobs/s", self.s3.objects)
+
     def test_odd_authorization_values_are_refused_not_crashed(self):
         for auth in (1, None, "Bearer " + chr(0xD800)):
             with self.subTest(auth=repr(auth)):

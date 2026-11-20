@@ -235,6 +235,7 @@ deleted; elsewhere, through the store's registered connection.
 | Round trip 64,000 characters | byte-identical |
 | Replace a label, then GET | new content served |
 | DELETE, then GET | `deleted`, then 404 |
+| PUT bytes that aren't UTF-8, with `Content-Type: text/plain` | record what comes back (400 `body must be UTF-8 text` expected; a 200 means the Function URL passed it as text), and GET the label to see what was stored; delete it after |
 
 Payloads are UTF-8 text (ASCII is simplest), as the store
 expects (SETUP.md, Bodies): random binary fails, and that would
