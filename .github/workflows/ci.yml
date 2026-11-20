@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Read-only token for every job: nothing here writes to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # NOTE: pr-labels.yml and pr-labels-ci.yml find this workflow by its name
+  # ("CI") and file (ci.yml). If either is renamed, update them too.
+  # main's ruleset is meant to require "ci-ok" (below), not this job: if
+  # ci-ok is renamed, update the ruleset, or every PR waits on a check that
+  # never comes.
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.17.0
+          terraform_wrapper: false
+      - name: Tool versions
+        run: |
+          python3 --version
+          terraform version
+      - name: ruff
+        # `--` before the paths: a tracked file named like an option (such as
+        # `--config=...#.py`) must be linted, not read as ruff configuration.
+        run: |
+          set -euo pipefail
+          echo "ruff: $(git ls-files -- '*.py' | wc -l) tracked Python files"
+          git ls-files -z -- '*.py' | xargs -0 --no-run-if-empty pipx run ruff==0.15.7 check --
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+      - name: terraform validate
+        # -backend=false: CI has no AWS credentials and needs none; validate
+        # checks the configuration, not any deployed state.
+        # NUL-separated end to end, so a directory name with a space, a quote
+        # or a non-ASCII character reaches terraform intact. A pipe, not a
+        # process substitution: pipefail then fails the step if the path
+        # list itself fails, rather than validating nothing and passing. `--`
+        # keeps a directory whose name starts with `-` from reading as an
+        # option to dirname.
+        run: |
+          set -euo pipefail
+          echo "terraform validate: $(git ls-files -- '*.tf' | wc -l) tracked .tf files"
+          git ls-files -z -- '*.tf' | xargs -0 --no-run-if-empty dirname -z -- | sort -zu |
+            while IFS= read -r -d '' dir; do
+              echo "::group::validate $dir"
+              terraform -chdir="$dir" init -backend=false -input=false -no-color
+              terraform -chdir="$dir" validate -no-color
+              echo "::endgroup::"
+            done
+
+  # The one check main's ruleset should require. A required job that is
+  # skipped counts as passing, so every job above is gathered here, and this
+  # one runs always and fails unless each of them succeeded. A new job must be
+  # added to `needs`, or it gates nothing.
+  ci-ok:
+    if: always()
+    needs: [checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check that every CI job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$NEEDS" | jq -e 'length > 0 and all(.[]; .result == "success")' > /dev/null ||
+            { echo "not every CI job succeeded (results above)"; exit 1; }
