@@ -182,9 +182,9 @@ resource "aws_lambda_permission" "function_url_public" {
 # lambda:FunctionUrlAuthType=NONE condition. The AWS provider this
 # route pins (~> 5.0) can't express that on the InvokeFunction action
 # (it rejects function_url_auth_type for it, observed 2026-11-20);
-# provider 6.x adds invoked_via_function_url, which the
-# CloudFormation template uses, but moving this route to 6.x is a
-# separate change. So here the grant is unconditional at the AWS
+# provider 6.28.0 added invoked_via_function_url, which the
+# CloudFormation template's equivalent uses; moving this route to
+# it is #20. So here the grant is unconditional at the AWS
 # layer. The handler's bearer-token check is therefore the
 # actual gate for every invocation path, which the design already
 # assumes: the function holds nothing but ciphertext access, and

@@ -48,7 +48,8 @@ class _FakeS3:
         self.objects.pop(Key, None)
 
 
-def _load_handler():
+def _load_handler(token_digest=None):
+    """Load lambda/index.py with a stub boto3; token_digest overrides the configured digest."""
     s3 = _FakeS3()
     boto3 = types.ModuleType("boto3")
     boto3.client = lambda name: s3
@@ -61,7 +62,7 @@ def _load_handler():
     os.environ.update({
         "BLOB_BUCKET": "bucket",
         "BLOB_PREFIX": "blobs/",
-        "BEARER_TOKEN_SHA256": hashlib.sha256(TOKEN.encode()).hexdigest(),
+        "BEARER_TOKEN_SHA256": token_digest or hashlib.sha256(TOKEN.encode()).hexdigest(),
     })
     try:
         spec = importlib.util.spec_from_file_location("blob_handler", REPO / "lambda" / "index.py")
@@ -133,6 +134,13 @@ class HandlerTest(unittest.TestCase):
             with self.subTest(body=body):
                 self.assertEqual(self.call("PUT", "/blobs/c", auth, body=body, b64=True), (400, "body must be UTF-8 text"))
                 self.assertNotIn("blobs/c", self.s3.objects)
+
+    def test_empty_token_is_refused_even_if_its_digest_is_configured(self):
+        mod, _ = _load_handler(token_digest=hashlib.sha256(b"").hexdigest())
+        for auth in ("Bearer ", "Bearer"):
+            with self.subTest(auth=auth):
+                r = mod.handler(_event("GET", "/", auth), None)
+                self.assertEqual((r["statusCode"], r["body"]), (401, "unauthorized"))
 
     def test_odd_authorization_values_are_refused_not_crashed(self):
         for auth in (1, None, "Bearer " + chr(0xD800)):

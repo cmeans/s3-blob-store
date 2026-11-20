@@ -203,6 +203,15 @@ class BuildTemplateTest(unittest.TestCase):
         self.assertNotIn("/blobs/*", skeleton)
         self.assertNotIn('BLOB_PREFIX: "', skeleton)
 
+    def test_invoke_grant_is_scoped_to_the_function_url(self):
+        # The security half of #11: lambda:InvokeFunction only through the URL.
+        import re
+        skeleton = (REPO / "template.skeleton.yaml").read_text(encoding="utf-8")
+        block = re.search(r"\n  FunctionInvokePermission:\n(.*?)(?=\n\S|\n  \S)", skeleton, re.S)
+        self.assertTrue(block)
+        self.assertIn("Action: lambda:InvokeFunction", block.group(1))
+        self.assertIn("InvokedViaFunctionUrl: true", block.group(1))
+
     def test_both_routes_share_the_suffix_rule_and_runtime(self):
         # The template and the Terraform route are kept equal by hand;
         # this catches either one changing alone.

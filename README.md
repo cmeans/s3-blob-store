@@ -60,6 +60,8 @@ never touches.
   or CloudFormation's 51,200-byte template-body limit.
 - `tests/test_build_template.py` — tests for the build tool and its
   guards (`python3 -m unittest discover -s tests`).
+- `tests/test_handler.py` — tests for the handler, against an
+  in-memory stand-in for S3.
 - `alternatives/terraform/` — the same resources deployed with
   Terraform, for people who'd rather run every step themselves; its
   own README has the steps.
@@ -207,7 +209,9 @@ the one-paste below is the supported path.)
 
    Expected: `401`, then `404`. **If the second is anything but
    `404`, stop:** the label is taken, or the store isn't answering
-   as it should. Otherwise:
+   as it should. (A `403` with the body `{"Message":null}` on both
+   lines comes from AWS, not the handler: the function's invoke
+   permissions are missing or wrong.) Otherwise:
 
    ```
    curl -s -w "\n" -X PUT -H "Authorization: Bearer $TOKEN" --data-binary "dummy" "$URL"blobs/$LABEL
@@ -254,8 +258,8 @@ hasn't been run yet.
   needs a `lambda:InvokeFunction` grant alongside
   `lambda:InvokeFunctionUrl`. The template limits that grant to
   calls through the URL (`InvokedViaFunctionUrl`); the Terraform
-  route can't yet, so there any AWS principal can also invoke the
-  function directly. Either way, authentication lives in the
+  route can't yet ([#20](https://github.com/cmeans/s3-blob-store/issues/20)),
+  so there any AWS principal can also invoke the function directly. Either way, authentication lives in the
   handler, which is the design assumption throughout: worst case,
   an unauthenticated caller reaches a function that returns 401
   and can only ever move ciphertext.

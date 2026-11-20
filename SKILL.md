@@ -277,7 +277,7 @@ afterwards so the bucket is left empty of test data.
       it): `template.yaml` matches a fresh build from the
       skeleton + `lambda/index.py`, within the 4,096-character
       inline-code budget and the 51,200-byte TemplateBody limit
-      (it is ~11.6 KB).
+      (it is about 13 KB).
 - [ ] STORE-TEST passes against a scratch stack deployed from
       the exact generated template (fresh `NameSuffix`).
 - [ ] The release **attaches `template.yaml` as a release
