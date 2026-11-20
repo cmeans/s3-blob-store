@@ -1,10 +1,103 @@
-# STORE-TEST scorecard — Amazon S3 + Lambda Function URL
+# STORE-TEST scorecard
 
-Tested 2026-11-20 in the author's own AWS account (us-east-2),
-following the STORE-TEST protocol from the `encrypted-credential-handoff`
-tool in muse-field-kit: dummy age-encrypted blobs only, scratch label
-`store-test`, every blob verified after fetch with the handoff check
-tool, all test material deleted afterwards.
+Two deploy routes, each STORE-TESTed against a live stack it created:
+the CloudFormation template (the current route, both ways of running
+the one-paste) and the earlier Terraform deployment. Every run used a
+scratch stack and dummy data in the maintainer's own AWS account
+(us-east-2), and was cleaned up afterwards.
+
+## CloudFormation template, 2026-11-20
+
+**Verdict: pass, both ways.** The template was deployed with the
+CloudShell one-paste from a GitHub release asset, twice: once with a
+human running the paste, and once with an assistant (Muse) doing the
+whole deployment from a login the account owner supplied. Each stack
+passed the same STORE-TEST the Terraform deployment passed.
+
+**What was deployed:** `template.yaml`, 11,627 bytes, SHA-256
+`9b7aa1a4a130d12dec62e6b45f51b98129b188300a538c1aef61c5f84fb9bcd8`:
+the same file as in this repo. It was downloaded from a release
+asset and hash-checked before the deploy. Each run used its own
+stack, its own `NameSuffix` and a throwaway token, so neither touched
+any other store.
+
+### STORE-TEST (both runs)
+
+| Check | Result |
+|---|---|
+| Health, authorized `GET /` | Pass: 200, body `ok` |
+| Unauthenticated `GET` of a blob | Pass: 401 |
+| Missing label | Pass: 404 |
+| Round trip 400 B | Pass: byte-identical, SHA-256 match |
+| Round trip 2,700 B | Pass: byte-identical, SHA-256 match |
+| Round trip 8,000 B | Pass: byte-identical, SHA-256 match |
+| Round trip 64,000 B | Pass: byte-identical, SHA-256 match |
+| Replace | Pass: new content served |
+| Delete, then `GET` | Pass: `deleted`, then 404 |
+
+The README's endpoint sequence, as it stood then, also passed in
+CloudShell each time: 401, `stored`, `dummy`, `deleted`, 404. (It
+has since gained a 404 check on a fresh label before anything is
+written, so a check can't overwrite a real blob.) Test labels were
+deleted afterwards. Each run deployed under its own stack name and
+`NameSuffix` (`SKILL.md`'s "Isolation by name" variant), not the
+default `s3-blob-store` stack.
+
+### Human-run paste
+
+- **Token download from `/tmp`:** works in the standalone CloudShell
+  console (Actions, then *Download file*). The CloudShell panel
+  embedded in the console toolbar refused downloads in Firefox ("The
+  download option is not supported in the Console Toolbar in this web
+  browser"), so the README sends people to the standalone console for
+  this step.
+- **Not tested:** clearing the token from scrollback
+  (`clear && tmux clear-history`) as a fallback to the download. The
+  docs don't rely on it.
+
+### Assistant-driven deployment
+
+- **Sign-in:** the account owner saved the account's login through
+  the assistant's secure credential flow and supplied one MFA code at
+  the prompt. Those were the only human steps.
+- **Deploy:** the assistant opened the standalone CloudShell and ran
+  the same one-paste. The deploy took about 100 seconds.
+- **Token:** downloaded through *Download file*, never displayed, used
+  for STORE-TEST, then deleted on both sides.
+- **STORE-TEST:** 9 of 9. The first attempt hit one transient network
+  read timeout; the retry passed, and it wasn't a stack fault.
+- **IAM:** in the same session the assistant created an IAM user,
+  attached and detached a policy, and deleted the user. So an
+  assistant-driven deployment can create a dedicated non-root user as
+  its first step after a root sign-in.
+
+Friction, kept for the assistant playbook (`SKILL.md`):
+
+- CloudShell shows a "Safe Paste for multiline text" warning on a
+  multi-line paste. Single-line pastes don't trigger it, which is one
+  reason the deploy is one line.
+- The terminal area has to be clicked before a paste lands.
+- A pasted block whose last line has no trailing newline leaves that
+  line unexecuted at the prompt, and the next paste appends to it.
+  End pasted blocks with a newline and check for a fresh prompt.
+- The handler's replies (`stored`, `dummy`, `deleted`) have no
+  trailing newline, so the shell prompt runs into them. The README's
+  checks add one with `-w "\n"`.
+
+### Cleanup, both runs
+
+Each stack was deleted afterwards. Its Function URL then answered with
+an AWS-level 403 (`{"Message":null}`), not the handler, so the
+function was gone.
+
+## Terraform deployment, 2026-11-20
+
+The first live deployment, made with what is now the Terraform route
+in `alternatives/terraform/`, following the STORE-TEST protocol from
+the `encrypted-credential-handoff` tool in muse-field-kit: dummy
+age-encrypted blobs only, scratch label `store-test`, every blob
+verified after fetch with the handoff check tool, all test material
+deleted afterwards.
 
 | Check | Score | Evidence in one line |
 | --- | --- | --- |
@@ -23,14 +116,17 @@ unobservable, and the Lambda is publicly invocable with
 authentication enforced in the handler (the design assumption,
 verified live).
 
-## Findings worth knowing before you adopt
+### Findings worth knowing before you adopt
 
 - A NONE-auth Lambda Function URL needs **two** resource-policy
   permissions, `lambda:InvokeFunctionUrl` and `lambda:InvokeFunction`,
   or AWS returns 403 for every request. Terraform's
   `aws_lambda_permission` cannot attach the `FunctionUrlAuthType`
   condition to the second one, so that grant is unconditional at the
-  AWS layer and the handler's token check is the real gate.
+  AWS layer and the handler's token check is the real gate. (The
+  CloudFormation template grants it unconditionally too;
+  [#11](https://github.com/cmeans/s3-blob-store/issues/11) tracks
+  scoping it.)
 - S3 answers a `GetObject` for a missing key with **AccessDenied**,
   not `NoSuchKey`, when the caller lacks `s3:ListBucket`. The handler
   maps that to 404 rather than granting list access the store does

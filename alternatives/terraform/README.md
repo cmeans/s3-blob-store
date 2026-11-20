@@ -105,18 +105,28 @@ Run the commands from the repo root.
    are two).
 
 5. **Check the endpoint.** With `URL` set to the `function_url`
-   output:
+   output. The check uses a label of its own, so it can never
+   overwrite a blob you already store:
 
    ```
-   curl -s -o /dev/null -w "%{http_code}\n" "$URL"blobs/test
-   curl -s -X PUT -H "Authorization: Bearer $TOKEN" --data-binary "dummy" "$URL"blobs/test
-   curl -s -H "Authorization: Bearer $TOKEN" "$URL"blobs/test
-   curl -s -X DELETE -H "Authorization: Bearer $TOKEN" "$URL"blobs/test
-   curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $TOKEN" "$URL"blobs/test
+   LABEL="store-check-$(date -u +%Y%m%dT%H%M%SZ)"
+   curl -s -o /dev/null -w "%{http_code}\n" "$URL"blobs/$LABEL
+   curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $TOKEN" "$URL"blobs/$LABEL
    ```
 
-   Expected, in order: `401`, `stored`, `dummy`, `deleted`, `404`.
-   Then `unset TOKEN DIGEST TF_VAR_bearer_token_sha256`.
+   Expected: `401`, then `404`. **If the second is anything but
+   `404`, stop:** the label is taken, or the store isn't answering
+   as it should. Otherwise:
+
+   ```
+   curl -s -w "\n" -X PUT -H "Authorization: Bearer $TOKEN" --data-binary "dummy" "$URL"blobs/$LABEL
+   curl -s -w "\n" -H "Authorization: Bearer $TOKEN" "$URL"blobs/$LABEL
+   curl -s -w "\n" -X DELETE -H "Authorization: Bearer $TOKEN" "$URL"blobs/$LABEL
+   curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $TOKEN" "$URL"blobs/$LABEL
+   ```
+
+   Expected, in order: `stored`, `dummy`, `deleted`, `404`. Then
+   `unset TOKEN DIGEST TF_VAR_bearer_token_sha256`.
 
 6. **Give your agent the token** (from your password manager) through whatever secure credential
    mechanism your agent platform provides, scoped to the function
