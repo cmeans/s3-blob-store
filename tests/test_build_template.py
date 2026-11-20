@@ -108,13 +108,13 @@ class BuildTemplateTest(unittest.TestCase):
     def test_handler_characters_yaml_cannot_carry_are_refused(self):
         handler = self.tmp / "lambda" / "index.py"
         text = (REPO / "lambda" / "index.py").read_text(encoding="utf-8")
-        for ch in ("\x1b", "\x00", "\x7f", "\x85", " ", " ", "\r"):
+        for ch in ("\x1b", "\x00", "\x7f", "\x85", "\u2028", "\u2029", "\r"):
             with self.subTest(ch=f"U+{ord(ch):04X}"):
                 handler.write_text(f"# {ch}\n" + text, encoding="utf-8", newline="")
                 r = self.run_tool()
                 self.assertEqual(r.returncode, 1)
                 self.assertIn(f"line 1 has U+{ord(ch):04X}", r.stderr)
-        for ok in ("\t", " ", "﻿", "é"):
+        for ok in ("\t", "\u00a0", "\ufeff", "é"):
             with self.subTest(ok=f"U+{ord(ok):04X}"):
                 handler.write_text(f"# {ok}\n" + text, encoding="utf-8", newline="")
                 r = self.run_tool()

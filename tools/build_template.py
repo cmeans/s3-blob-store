@@ -95,7 +95,7 @@ def check_handler_chars(handler):
     for lineno, line in enumerate(handler.split("\n"), 1):
         for ch in line:
             o = ord(ch)
-            if ch != "\t" and (o < 0x20 or 0x7F <= o <= 0x9F or ch in "  "
+            if ch != "\t" and (o < 0x20 or 0x7F <= o <= 0x9F or ch in "\u2028\u2029"
                                or 0xD800 <= o <= 0xDFFF or o in (0xFFFE, 0xFFFF)):
                 hint = ("use LF line endings" if ch == "\r"
                         else "use an escape in the Python source instead")
