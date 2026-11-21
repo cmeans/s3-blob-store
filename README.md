@@ -262,9 +262,11 @@ the token out the same way, and verifies the endpoint itself.
 That path, and the assisted account creation, are written up
 for assistants in `SKILL.md`. Both deploy paths were exercised
 end to end before this README was published (results in
-`SCORECARD.md`) with the one-paste line as it was then: step 3's
-`deploy.sh` and step 5's fresh-label check came after; the assisted account creation
-hasn't been run yet.
+`SCORECARD.md`) with the one-paste line as it was then. Step 3's
+`deploy.sh` and step 5's fresh-label check came after; the
+assistant-driven path ran with `deploy.sh` on scratch stacks on
+2026-11-21 (same file). The assisted account creation hasn't been
+run yet.
 
 ## Caveats, honestly
 
@@ -301,7 +303,9 @@ hasn't been run yet.
   empty it (destroying every blob) and delete the stack again, or
   delete the stack with `--retain-resources BlobBucket` and deploy
   the new store with `--suffix <x>` (`SKILL.md`, Isolation by
-  name). Not yet run end to end.
+  name). Emptying and deleting again was run on a scratch stack on
+  2026-11-21 (`SCORECARD.md`); `--retain-resources` hasn't been run
+  yet.
 - **Cost** at handoff scale is effectively zero: a handful of small
   S3 objects and a rarely-invoked Lambda.
 

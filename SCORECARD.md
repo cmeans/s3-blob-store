@@ -4,7 +4,87 @@ Two deploy routes, each STORE-TESTed against a live stack it created:
 the CloudFormation template (the current route, both ways of running
 the one-paste) and the earlier Terraform deployment. Every run used a
 scratch stack and dummy data in the maintainer's own AWS account
-(us-east-2), and was cleaned up afterwards.
+(us-east-2), and was cleaned up afterwards. Sections are newest
+first.
+
+## CloudFormation template, pre-release, 2026-11-21
+
+**Verdict: pass.** Two runs by an assistant (Muse) in the standalone
+CloudShell console, each on its own scratch stack
+(`bash deploy.sh --suffix sttest`), with dummy data only; the
+production store was untouched and health-checked afterwards (200
+`ok`). The first run found one defect, fixed in
+[#28](https://github.com/cmeans/s3-blob-store/pull/28); the second,
+at the fixed commit, passed every row of `SKILL.md`'s STORE-TEST
+table but one it allows to be skipped.
+
+### Run 1: commit 749758d
+
+`template.yaml` 12,964 bytes, SHA-256
+`1413c302a7a59ffb454b1b14b041fa493f1abe5ad51604cd8ba2f3c1d58e5198`;
+`deploy.sh` SHA-256
+`9ea79f240d02d15ccdd7c1f5d30e9b839531115487770d480cd2256b713e1fc9`.
+Both fetched from the repository at that commit and hash-checked.
+
+The first deploy (`bash deploy.sh --suffix sttest`) gave
+`Deployed.`, exit 0. Every endpoint and `deploy.sh` check passed
+(`--check`, the re-run refusal and rotation included), except one:
+a `PUT` of
+the bytes `ff fe 00 61 62 63` with `Content-Type: text/plain`
+returned 200 `stored`, and a GET returned
+`ef bf bd ef bf bd 00 61 62 63`. The Function URL decodes a text
+body before the handler sees it and replaces each invalid byte with
+U+FFFD, so the handler's UTF-8 check never fired and the mangled
+text was stored. #28 makes the handler refuse any body containing
+U+FFFD. Not covered by this run: the five rows #28 then added to the
+table (lowercase `bearer`, the same bytes as
+`application/octet-stream`, a `café` round trip, the
+resource-policy condition and a direct invoke), and the 22-character
+`--suffix` refusal.
+
+### Run 2: commit 17251e9
+
+`template.yaml` 12,857 bytes, SHA-256
+`7cf5a3a1d75a8a78e81142ce777da44fdffb4e50345be0b8060bca0c843985f6`;
+`deploy.sh` unchanged (SHA-256 as above). Both fetched at that commit
+and hash-checked.
+
+| Check | Result |
+|---|---|
+| Health, `Bearer` token | Pass: 200, body `ok` |
+| Health, lowercase `bearer` | Pass: 200, body `ok` |
+| Unauthenticated `GET` of a blob | Pass: 401 |
+| Missing label | Pass: 404 |
+| Round trips 400 / 2,700 / 8,000 / 64,000 characters | Pass: byte-identical, SHA-256 match |
+| Replace | Pass: new content served |
+| Delete, then `GET` | Pass: `deleted`, then 404 |
+| Non-UTF-8 bytes `ff fe 00 61 62 63` as `text/plain` | Pass: 400 `body must be UTF-8 text (U+FFFD not allowed)`, then 404 |
+| The same bytes as `application/octet-stream` | Pass: 400 `body must be UTF-8 text` (the base64 path's strict decode), then 404 |
+| `café` (`63 61 66 c3 a9`) as `application/octet-stream` | Pass: stored, GET returned the same 5 bytes |
+| Resource policy (`aws lambda get-policy`) | Pass: the `lambda:InvokeFunction` statement for principal `*` carries `"Condition":{"Bool":{"lambda:InvokedViaFunctionUrl":"true"}}`; the `lambda:InvokeFunctionUrl` statement carries `lambda:FunctionUrlAuthType` = `NONE` |
+| Direct invoke from an identity with no Lambda permissions | Skipped, as the row allows: the only identity at hand was the account admin, whose own IAM permissions would allow the call whatever the resource policy says. No IAM principals were created for the test |
+| `deploy.sh --check` with the token file present | Pass: `LIVE`, exit 0 |
+| The one-paste again, without `--rotate` | Pass: `already exists (CREATE_COMPLETE)`, exit 3, nothing changed |
+| Rotation | Pass: `Rotated.`; old token 401, new token 200; new token file mode 600 |
+| `--suffix` of 22 characters | Pass: refused before any AWS call, exit 3 |
+
+The token was read from its mode-600 file into a shell variable and
+never printed. The rotation row's "token file saved and deleted
+first" matters: with the old file still in place, `--rotate` stops
+with exit 3 (`already exists. It may hold a token you haven't saved
+yet.`) rather than overwrite it.
+
+### Cleanup, both runs
+
+Each scratch stack was deleted and confirmed gone, and its Function
+URL then answered with an AWS-level 403 (`{"Message":null}`), not the
+handler. In run 2 the first `delete-stack` ended in `DELETE_FAILED`,
+because test blobs were still in the bucket and S3 won't delete a
+non-empty bucket (the behavior `README.md` and `SKILL.md`
+describe); emptying the scratch bucket and deleting the stack again
+succeeded. Delete the test labels before the stack, as the
+STORE-TEST section says, to avoid it. Token files were removed from
+CloudShell after both runs, and the downloaded scripts after run 2.
 
 ## CloudFormation template, 2026-11-20
 
