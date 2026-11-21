@@ -1,0 +1,72 @@
+# Dependabot version-update configuration for s3-blob-store.
+#
+# Two ecosystems are tracked:
+#   - github-actions: workflow files under .github/workflows/
+#                     (ci, qa-gate, pr-labels, pr-labels-ci). Actions are
+#                     pinned by commit SHA with a version comment;
+#                     Dependabot updates both.
+#   - terraform:      the alternative Terraform route in
+#                     alternatives/terraform/ (the hashicorp/aws provider
+#                     constraint and .terraform.lock.hcl).
+#
+# The CloudFormation route (template.yaml, lambda/) has no package
+# manifest: the handler uses only the Python standard library and the
+# boto3 bundled with the Lambda runtime, so there is nothing to track.
+#
+# Schedule is weekly (Monday 06:00 America/Chicago) so PRs don't pile
+# up faster than they can be reviewed. Each ecosystem groups its
+# updates into a single PR per week.
+#
+# Labels named here are applied only if they already exist on the
+# repo; Dependabot does not create them. The label-automation
+# workflows handle the QA-flow labels separately.
+#
+# Docs:
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Chicago"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  - package-ecosystem: "terraform"
+    directory: "/alternatives/terraform"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/Chicago"
+    open-pull-requests-limit: 5
+    groups:
+      terraform:
+        patterns:
+          - "*"
+    # The move to AWS provider 6.x is its own change (#20: provider
+    # >= 6.28 to scope the invoke grant to the function URL, after
+    # reading the 6.0 upgrade guide). Until then, only minor and patch
+    # updates within the current major.
+    ignore:
+      - dependency-name: "hashicorp/aws"
+        update-types: ["version-update:semver-major"]
+    labels:
+      - "dependencies"
+      - "terraform"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
