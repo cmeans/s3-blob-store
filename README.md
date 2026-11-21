@@ -295,10 +295,13 @@ run yet.
 - **Deleting the stack leaves your blobs.** S3 won't delete a
   non-empty bucket, so a stack delete with blobs still in it leaves
   the bucket and the blobs standing and the stack in
-  `DELETE_FAILED`. A new default store can't be deployed until that
-  stack is gone: either empty the bucket (which destroys every blob)
-  and delete the stack again, or keep the blobs and deploy the new
-  store with `--suffix <x>`. The details are in `SKILL.md`,
+  `DELETE_FAILED`. A new default store can't be deployed while that
+  stack and its bucket, which keeps the default name, remain. Either
+  empty the bucket (which destroys every blob) and delete the stack
+  again, or keep the blobs: delete the stack with
+  `--retain-resources BlobBucket` (the bucket stays, outside any
+  stack; not yet run) and deploy the new store with `--suffix <x>`.
+  The details are in `SKILL.md`,
   Operations, Teardown (written for an assistant; the commands work
   just as well by hand).
 
