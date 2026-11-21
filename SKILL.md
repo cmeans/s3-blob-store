@@ -301,14 +301,16 @@ afterwards so the bucket is left empty of test data.
 - **Teardown:** confirm with the user first; for a real store,
   every credential in it becomes unreachable through the API.
   `aws cloudformation delete-stack --stack-name <name>`, wait,
-  then verify the FunctionUrl returns an AWS-level error. S3
+  then verify the FunctionUrl returns an AWS-level error: the
+  function, its role and the URL are gone. S3
   refuses to delete a non-empty bucket, so with blobs still in
   it the bucket (and the blobs) stay, and the stack ends in
   `DELETE_FAILED` (observed on a scratch stack, 2026-11-21;
   `SCORECARD.md`). Empty the
   bucket only for a scratch stack, and only with the user's go:
   `aws s3 rm s3://<BlobBucketName>/blobs/ --recursive`, then
-  delete the stack again. To keep the blobs instead, delete the
+  delete the stack again (run on a scratch stack, 2026-11-21;
+  `SCORECARD.md`). To keep the blobs instead, delete the
   stack with `--retain-resources BlobBucket` (the bucket stays,
   outside any stack) and deploy any new store with
   `--suffix <x>`, since the old bucket keeps the default name.

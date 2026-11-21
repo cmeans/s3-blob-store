@@ -1,17 +1,19 @@
 # ALTERNATIVES — other ways to stand the same resources up
 
-The supported deployment is the CloudShell one-paste in
+The main deployment is the CloudShell one-paste in
 `README.md`. It is the only path that needs nothing installed,
 nothing hosted, and no account preparation beyond the AWS
 account itself, and it is the path releases are tested on
 (`SCORECARD.md`).
 
 Sections 1 to 3 below produce the **identical stack** — the
-same 7 resources from the same `template.yaml`; section 4,
-Terraform, deploys the same store with its own resources; and
-all are kept for people whose circumstances fit them better. They are
+same 7 resources from the same `template.yaml` — and are kept
+for people whose circumstances fit them better. They are
 documented, not supported: if one of them and the one-paste
-disagree, the one-paste is right.
+disagree, the one-paste is right. Section 4, Terraform, is a
+supported, more hands-on route: it deploys the same store with
+its own resources, from your own machine, and has its own README
+and STORE-TEST record.
 
 Shared prerequisite for sections 1, 2 and 4: the token and its
 digest (section 3 runs `deploy.sh`, which makes its own).

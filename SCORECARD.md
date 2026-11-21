@@ -1,7 +1,7 @@
 # STORE-TEST scorecard
 
 Two deploy routes, each STORE-TESTed against a live stack it created:
-the CloudFormation template (the current route, both ways of running
+the CloudFormation template (the main route, both ways of running
 the one-paste) and the Terraform route (the store's first live
 deployment). Every run used a
 scratch stack and dummy data in the maintainer's own AWS account

@@ -81,7 +81,7 @@ never touches.
   contract, label rules, and rotation.
 - `ALTERNATIVES.md` — the other ways to stand the same resources
   up (Launch Stack, console upload, local CLI, Terraform), and
-  why the one-paste is the supported path instead.
+  what each trades off against the one-paste.
 - `.github/workflows/` — CI (the template check, the tests,
   cfn-lint, ruff, and Terraform `fmt` and `validate`) and the PR
   label workflow.
@@ -123,7 +123,8 @@ line, pasted into a browser shell. (Other ways to stand the same
 resources up — a hosted Launch Stack link, a console upload, a
 local CLI, a more hands-on Terraform route — are in
 `ALTERNATIVES.md`. All but Terraform deploy this same template;
-the one-paste below is the main, tested path.)
+the one-paste below is the main path, and the one releases are
+tested on.)
 
 1. **Create the AWS account, on the Paid plan, with root MFA.**
    Start at https://aws.amazon.com/free/. Since July 2025 new
@@ -286,21 +287,24 @@ run yet.
   reaches a function that returns 401 and can only ever move
   ciphertext.
 - **One token, no expiry.** There is no expiry or revocation list:
-  the token works until you rotate it, and rotating (a re-run of the
-  step 3 line with `--rotate`; SETUP.md, Rotation) is the only way to
-  cut off a leaked one. For a single-operator store that trade-off is
-  deliberate.
+  the token works until you rotate it, so rotating is how you cut off
+  a leaked one, short of deleting the store. With the template that's
+  a re-run of the step 3 line with `--rotate` (SETUP.md, Rotation);
+  the Terraform route has its own steps in its README. For a
+  single-operator store that trade-off is deliberate.
 - **Deleting the stack leaves your blobs.** S3 won't delete a
   non-empty bucket, so a stack delete with blobs still in it leaves
   the bucket and the blobs standing and the stack in
   `DELETE_FAILED`. That bucket keeps the default name, so a new
   default stack would fail on it until you empty it or deploy with
   `--suffix <x>`. The ways out are in `SKILL.md`, Operations,
-  Teardown.
+  Teardown (written for an assistant; the commands work just as
+  well by hand).
 
 ## Other ways to deploy
 
-The one-paste above is the tested path. If you'd rather work
+The one-paste above is the main path, and the one releases are
+tested on. If you'd rather work
 differently, [`ALTERNATIVES.md`](ALTERNATIVES.md) covers the other
 routes, including a more hands-on Terraform one, and what each
 trades off.

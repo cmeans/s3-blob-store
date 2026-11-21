@@ -184,7 +184,8 @@ resource "aws_lambda_permission" "function_url_public" {
 # (it rejects function_url_auth_type for it, observed 2026-11-20);
 # provider 6.28.0 added invoked_via_function_url, which the
 # CloudFormation template's equivalent uses; moving this route to
-# it is #20. So here the grant is unconditional at the AWS
+# it is the provider-6 item in backlog #27 (formerly #20). So here
+# the grant is unconditional at the AWS
 # layer. The handler's bearer-token check is therefore the
 # actual gate for every invocation path, which the design already
 # assumes: the function holds nothing but ciphertext access, and
