@@ -220,23 +220,34 @@ repair_note() {
 if [ $check = 1 ]; then
   foreign_token_path 2 "Can't tell" ""
   if [ ! -f "$token_file" ]; then
-    # No file to compare. What's left to say depends on whether a store
-    # is running at all.
-    read_status
-    case "$status" in
-      unreadable)
-        say "No token file at $token_file, and stack $stack couldn't be read. AWS said:"
-        say "$status_err"
-        exit 2 ;;
-      none|REVIEW_IN_PROGRESS|ROLLBACK_COMPLETE|DELETE_COMPLETE)
-        say "No token file at $token_file, and stack $stack has no working store (${status}): no token is live, so there's nothing to do. (Deployed under another name? Use the same --suffix.)"
+    # No file to compare. The same classification as below; with no
+    # digest of our own, a running store can only answer "other".
+    assess ""
+    case "$result" in
+      gone)
+        say "No token file at $token_file, and stack $stack has no working store (${status}): no token is live, so there's nothing to do. (Deployed under another name, or in another region? Run this with the same --suffix, in that region's CloudShell.)"
+        repair_note
         exit 1 ;;
-      *_IN_PROGRESS)
+      busy)
         say "No token file at $token_file, and stack $stack is $status. Run $me --check again once it has finished changing."
         exit 2 ;;
+      unknown)
+        say "No token file at $token_file, and the store couldn't be read: $why"
+        exit 2 ;;
     esac
+    # A store runs some token. Whether anyone holds it can't be told from
+    # here: only the token the clients use can say.
+    outputs
     say "No token file at $token_file. If you saved its token and then deleted the file, there's nothing to do."
-    say "If a deploy or rotation ended unconfirmed (exit 2) and the file has been lost since (in CloudShell, /tmp is cleared when the session ends), test the previous token, if there was one, with GET / (README, step 5): 200 means the lost token never went live, so there's nothing to do. A 401, or no previous token, means the store may run the lost one: rotate with $me --rotate."
+    say "If you don't know whether the store runs a token you hold (say a deploy or rotation ended unconfirmed and the file was lost since: in CloudShell, /tmp is cleared when the session ends), test the token your clients use, from your password manager or the registered connection, never from a file, with the FunctionUrl above (SETUP.md, Verify the wiring):"
+    # shellcheck disable=SC2016  # printed for the user to run: $TOKEN and $URL stay literal
+    say '  curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $TOKEN" "$URL"'
+    if [ "$repair" = 1 ]; then
+      say "200: nothing to do. Anything else: the stack needs repair first (see the note below); don't rotate until it's repaired."
+      repair_note
+    else
+      say "200: nothing to do. 401: the store runs a token nobody holds; rotate with $me --rotate. Anything else, or no token to test with: stop and find out first; never rotate on a guess, since it ends the token your clients use."
+    fi
     exit 2
   fi
   mine=$(file_digest)

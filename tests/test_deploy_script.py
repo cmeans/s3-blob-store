@@ -677,13 +677,23 @@ class CheckTest(Base):
         self.assertNotIn("Traceback", r.stdout + r.stderr)
 
     def test_no_file_and_no_store_is_nothing_to_do(self):
-        for status in ("none", "ROLLBACK_COMPLETE", "DELETE_COMPLETE"):
+        for status, digest in (("none", OLD), ("REVIEW_IN_PROGRESS", OLD), ("ROLLBACK_COMPLETE", OLD),
+                               ("DELETE_COMPLETE", OLD), ("DELETE_FAILED", "missing")):
             with self.subTest(status=status):
-                self.set_stack(status)
+                self.set_stack(status, digest)
                 r, _ = self.run_script("--check")
                 self.assertEqual(r.returncode, 1, r.stdout)
                 self.assertIn("nothing to do", r.stdout)
+                self.assertIn("another region", r.stdout)
                 self.assertNotIn("--rotate", r.stdout)
+
+    def test_no_file_on_a_failed_stack_says_repair_not_rotate(self):
+        self.set_stack("UPDATE_ROLLBACK_FAILED")
+        r, _ = self.run_script("--check")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("needs repair", r.stdout)
+        self.assertIn("don't rotate", r.stdout)
+        self.assertNotIn("rotate with", r.stdout)
 
     def test_no_file_while_busy_or_unreadable_is_cant_tell(self):
         for status, env in (("UPDATE_IN_PROGRESS", {}), ("UPDATE_COMPLETE", {"FAKE_DESCRIBE": "error"})):
@@ -710,8 +720,11 @@ class CheckTest(Base):
                 self.set_stack(end, digest if end == "UPDATE_COMPLETE" else OLD)
                 r, _ = self.run_script("--check")
                 self.assertEqual(r.returncode, 2, r.stdout)
-                self.assertIn("test the previous token", r.stdout)
-                self.assertIn(f"bash deploy.sh --suffix {self.suffix} --rotate", r.stdout)
+                self.assertIn("OUTPUTS-TABLE", r.stdout)
+                self.assertIn("test the token your clients use", r.stdout)
+                self.assertIn('-H "Authorization: Bearer $TOKEN" "$URL"', r.stdout)
+                self.assertIn(f"401: the store runs a token nobody holds; rotate with bash deploy.sh --suffix {self.suffix} --rotate", r.stdout)
+                self.assertIn("never rotate on a guess", r.stdout)
 
 
 class TemplateNamesTest(unittest.TestCase):

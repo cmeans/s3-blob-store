@@ -111,15 +111,21 @@ Give the user these steps; they take about five minutes.
    for a token file under 10 minutes old that isn't live yet, in
    case a deploy in another tab is still applying it). With no
    token file at all, `--check` reads the stack: no store is exit
-   1, nothing to do; a running store is exit 2. That is fine if
-   the user saved the token and deleted the file. But if the
-   session ended after an exit 2, the token is lost: test the
-   previous token, if any, with `GET /`. A 200 means the lost one
-   never went live and nothing is needed; a 401 (or no previous
-   token) means rotate, with the user's OK. A "needs repair" note means a stack in a
+   1, nothing to do (or the store is under another `--suffix`, or
+   in another region); busy or unreadable is exit 2, check again
+   later; a running store is exit 2 with the FunctionUrl and a
+   test to run. That's expected if the user saved the token and
+   deleted the file. If a token file was lost after an exit 2,
+   run that test with the token the clients use, from the
+   password manager or the registered connection (never from a
+   file): 200 means nothing to do; 401 means the store runs a
+   token nobody holds, so rotate, with the user's OK; anything
+   else, or no token to test with, means stop and ask. Never
+   rotate on a guess: it ends the token the clients use. A
+   failed stack gets "repair first" instead. A "needs repair" note means a stack in a
    failed state: report it to the user. Never tell the user a
    token is live, or that it isn't, from anything but those exit
-   codes.
+   codes, or that `GET /` test with the clients' own token.
 
    The deploy takes ~100 seconds of "Waiting for stack
    create/update to complete" — that is normal, not a stall.
