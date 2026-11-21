@@ -90,8 +90,8 @@ def handler(event, _context):
             except ValueError:  # bad base64 or non-UTF-8 bytes
                 return _reply(400, "body must be UTF-8 text")
         # U+FFFD: a text body's non-UTF-8 bytes arrive replaced by it.
-        if "�" in body:
-            return _reply(400, "body must be UTF-8 text")
+        if "\ufffd" in body:
+            return _reply(400, "body must be UTF-8 text (U+FFFD not allowed)")
         try:
             data = body.encode("utf-8")
         except UnicodeEncodeError:  # e.g. a lone surrogate in a text body

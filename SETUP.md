@@ -76,9 +76,10 @@ Errors: 401 `unauthorized` (missing or wrong token), 404
 `method not allowed`, 400 `invalid label` (label fails
 validation), 400 `body must be UTF-8 text` (a body the Function
 URL hands over base64-encoded that isn't valid base64 or UTF-8,
-a text body that can't be encoded as UTF-8, or any body
-containing U+FFFD, the replacement character). The U+FFFD rule is
-there because a non-UTF-8 body sent as text (for example
+or a text body that can't be encoded as UTF-8), 400
+`body must be UTF-8 text (U+FFFD not allowed)` (a body containing
+U+FFFD, the replacement character). The U+FFFD rule is there
+because a non-UTF-8 body sent as text (for example
 `text/plain`) reaches the handler with each invalid byte already
 replaced by U+FFFD (STORE-TEST, 2026-11-21): refusing it keeps
 mangled text from being stored. A blob can't contain U+FFFD for
@@ -90,7 +91,8 @@ naming scheme uses them (e.g. `agent:purpose:key`), map them
 before storing (`.` for `:` is the convention the reference
 deployment uses) and keep the mapping in one place.
 
-**Bodies:** UTF-8 text, stored and returned as is. That suits
+**Bodies:** UTF-8 text without U+FFFD (see Errors above), stored
+and returned as is. That suits
 ASCII-armored ciphertext (for example `age -a` output); encode
 binary as base64 before storing it. The store is designed for
 credential-sized payloads;
