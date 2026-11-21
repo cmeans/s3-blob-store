@@ -97,10 +97,15 @@ passed the same STORE-TEST the Terraform deployment passed.
 
 **What was deployed:** `template.yaml`, 11,627 bytes, SHA-256
 `9b7aa1a4a130d12dec62e6b45f51b98129b188300a538c1aef61c5f84fb9bcd8`:
-the same file as in this repo. It was downloaded from a release
-asset and hash-checked before the deploy. Each run used its own
-stack, its own `NameSuffix` and a throwaway token, so neither touched
-any other store.
+the same file as this repo's first `template.yaml` (`c685a4b`;
+later commits changed it). This repo had no release yet (its
+first is v0.1.0, 2026-11-21), so the file was attached by hand to a
+test release, `v0.1.0-cftest`, on a temporary repo deleted after
+both runs. The first run downloaded it from there and hash-checked
+it before the deploy. The second ran the same one-paste, so it
+fetched the same asset, but recorded no second hash check. Each run
+used its own stack, its own `NameSuffix` and a throwaway token, so
+neither touched any other store.
 
 ### STORE-TEST (both runs)
 
