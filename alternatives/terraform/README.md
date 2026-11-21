@@ -159,10 +159,13 @@ managing it from this directory:
    don't apply:** the key, bucket or region doesn't match your
    state, and an apply would try to create a second store.
 
-`plan` should show no changes. The zip is now built from the
-single `lambda/index.py` file rather than the old `lambda/`
-directory, but the archive is the same (one `index.py` entry, same
-bytes and mode), so its hash, and the Lambda, are unchanged. The
+`plan` should show nothing to add or destroy. The zip is now built
+from the single `lambda/index.py` file rather than the old
+`lambda/` directory; the archive layout is the same (one
+`index.py` entry, same mode). If `lambda/index.py` has changed
+since your deployment (it has, for example, the handler fixes of
+2026-11-20 and 2026-11-21), `plan` shows the Lambda function
+updated in place, and only that. The
 bootstrap template moved to
 `alternatives/terraform-state-bootstrap/`, and its description,
 `Project` tag (now removed) and output descriptions changed. Its

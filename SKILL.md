@@ -241,17 +241,20 @@ their name.
 ## Verification — STORE-TEST
 
 Run against any new deployment before calling it done. All
-checks must pass. Use labels only this run uses (for example
+checks must pass, except a row that says it may be skipped, which is
+recorded as skipped. Use labels only this run uses (for example
 `store-test-<UTC timestamp>-<n>`), and GET each one first: it
 must be 404, or stop. A store already holding blobs must never
 lose one to its own test. Every check but the unauthenticated
 one needs the token: in CloudShell, read it from the token file
-(`TOKEN=$(cat /tmp/s3-blob-store-token.txt)`) before that file is
-deleted; elsewhere, through the store's registered connection.
+(`TOKEN=$(cat /tmp/s3-blob-store-token.txt)`, or
+`/tmp/s3-blob-store-<x>-token.txt` for a store deployed with
+`--suffix <x>`) before that file is deleted; elsewhere, through the store's registered connection.
 
 | Check | Expected |
 |---|---|
 | `GET /` with token | 200, body `ok` |
+| `GET /` with the scheme in lowercase (`Authorization: bearer <token>`) | 200, body `ok` |
 | `GET /blobs/x` without token | 401 |
 | `GET` missing label, with token | 404 |
 | Round trip 400 characters of text | byte-identical (hash match) |
@@ -260,7 +263,11 @@ deleted; elsewhere, through the store's registered connection.
 | Round trip 64,000 characters | byte-identical |
 | Replace a label, then GET | new content served |
 | DELETE, then GET | `deleted`, then 404 |
-| PUT bytes that aren't UTF-8, with `Content-Type: text/plain` | record what comes back (400 `body must be UTF-8 text` expected; a 200 means the Function URL passed it as text), and GET the label to see what was stored; delete it after |
+| PUT bytes that aren't UTF-8 (for example `ff fe 00 61 62 63`), with `Content-Type: text/plain` | 400 `body must be UTF-8 text (U+FFFD not allowed)`, then GET is 404 (the Function URL turned the bad bytes into U+FFFD in the 2026-11-21 run) |
+| The same bytes with `Content-Type: application/octet-stream` | 400, either `body must be UTF-8 text` (the Function URL passed them base64-encoded) or the U+FFFD reply (it passed them as text); record which, then GET is 404 |
+| Round trip `café` (UTF-8 bytes `63 61 66 c3 a9`) with `Content-Type: application/octet-stream` | 200 `stored`, then GET returns the same 5 bytes |
+| The function's resource policy (`F=$(aws cloudformation describe-stack-resource --stack-name s3-blob-store-<x> --logical-resource-id BlobFunction --query StackResourceDetail.PhysicalResourceId --output text)`, then `aws lambda get-policy --function-name "$F" --query Policy --output text`) | the `lambda:InvokeFunction` statement for principal `*` carries the condition `lambda:InvokedViaFunctionUrl` = `true`, so it allows only calls through the Function URL |
+| Invoke the function directly (`aws lambda invoke --function-name "$F" out.json`) as an identity with no Lambda permissions of its own in IAM | refused, `AccessDeniedException`; record the exact error. An admin's own IAM permissions allow a direct invoke whatever the resource policy says, so this needs an identity without them. May be skipped (record it as skipped) if there's none to hand |
 | `bash deploy.sh --check --suffix <x>`, with the deploy's token file still there | `LIVE`, exit 0 (the function's digest is readable) |
 | Run the one-paste again, ending `bash deploy.sh --suffix <x>`, with no `--rotate` | stops: `already exists`, exit 3, nothing changed |
 | Rotate (`--rotate --suffix <x>`, token file saved and deleted first), then GET with the old and the new token | `Rotated.`; 401 old, 200 new |
