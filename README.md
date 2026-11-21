@@ -81,7 +81,7 @@ never touches.
   contract, label rules, and rotation.
 - `ALTERNATIVES.md` — the other ways to stand the same resources
   up (Launch Stack, console upload, local CLI, Terraform), and
-  why the one-paste is the supported path instead.
+  what each trades off against the one-paste.
 - `.github/workflows/` — CI (the template check, the tests,
   cfn-lint, ruff, and Terraform `fmt` and `validate`) and the PR
   label workflow.
@@ -121,9 +121,10 @@ You need an AWS account. Nothing else: no AWS CLI, no Terraform,
 nothing installed on your machine. The whole deployment is one
 line, pasted into a browser shell. (Other ways to stand the same
 resources up — a hosted Launch Stack link, a console upload, a
-local CLI, the earlier Terraform version — are in
+local CLI, a more hands-on Terraform route — are in
 `ALTERNATIVES.md`. All but Terraform deploy this same template;
-the one-paste below is the supported path.)
+the one-paste below is the main path, and the one releases are
+tested on.)
 
 1. **Create the AWS account, on the Paid plan, with root MFA.**
    Start at https://aws.amazon.com/free/. Since July 2025 new
@@ -160,7 +161,7 @@ the one-paste below is the supported path.)
      confirm there is no store yet. An existing store means
      deploying would rotate its token, and everything using the
      old one would start getting 401; to do that on purpose, see
-     the caveats, on rotation. For a failed first deploy, a busy
+     SETUP.md, Rotation. For a failed first deploy, a busy
      stack, or a state it can't read, it says what to do instead.
      Every stop changes nothing;
    - stops if a token file from an earlier run is still in
@@ -278,46 +279,39 @@ run yet.
   needs a `lambda:InvokeFunction` grant alongside
   `lambda:InvokeFunctionUrl`. The template limits that grant to
   calls through the URL (`InvokedViaFunctionUrl`); the Terraform
-  route can't yet ([#20](https://github.com/cmeans/s3-blob-store/issues/20)),
-  so there any AWS principal can also invoke the function directly. Either way, authentication lives in the
-  handler, which is the design assumption throughout: worst case,
-  an unauthenticated caller reaches a function that returns 401
-  and can only ever move ciphertext.
-- **Token rotation is a re-run, on purpose.** In CloudShell, paste
-  the step 3 line again, from the current release, with
-  `bash deploy.sh --rotate` at the end in place of `bash
-  deploy.sh`.
-  Without `--rotate` the script stops rather than rotate. (Downloading
-  again matters: rotating with an older `template.yaml` would also
-  roll the stack back to it.) It generates a fresh token, updates the stack with its
-  digest, and the old token stops working; then update the credential
-  wherever your agent platform holds it (SETUP.md). There is no
-  expiry or revocation list; for a single-operator store that
-  trade-off is deliberate.
-- **Deleting the stack** removes the function, role and URL. The
-  bucket is only deleted once it is empty — S3 refuses to delete a
-  non-empty bucket, so a stack delete with blobs still in it
-  leaves the bucket (and your blobs) standing, by design, and the
-  stack in `DELETE_FAILED`. That bucket keeps the default name, so
-  a new default stack would fail on it. To start over, either
-  empty it (destroying every blob) and delete the stack again, or
-  delete the stack with `--retain-resources BlobBucket` and deploy
-  the new store with `--suffix <x>` (`SKILL.md`, Isolation by
-  name). Emptying and deleting again was run on a scratch stack on
-  2026-11-21 (`SCORECARD.md`); `--retain-resources` hasn't been run
-  yet.
-- **Cost** at handoff scale is effectively zero: a handful of small
-  S3 objects and a rarely-invoked Lambda.
+  route can't yet (an item in
+  [#27](https://github.com/cmeans/s3-blob-store/issues/27)), so there
+  any AWS principal can also invoke the function directly. Either
+  way, authentication lives in the handler, which is the design
+  assumption throughout: worst case, an unauthenticated caller
+  reaches a function that returns 401 and can only ever move
+  ciphertext.
+- **One token, no expiry.** There is no expiry or revocation list:
+  the token works until you rotate it, so rotating is how you cut off
+  a leaked one, short of deleting the store. With the template that's
+  a re-run of the step 3 line with `--rotate` (SETUP.md, Rotation);
+  the Terraform route has its own steps in its README. For a
+  single-operator store that trade-off is deliberate.
+- **Deleting the stack leaves your blobs.** S3 won't delete a
+  non-empty bucket, so a stack delete with blobs still in it leaves
+  the bucket and the blobs standing and the stack in
+  `DELETE_FAILED`. A new default store can't be deployed while that
+  stack and its bucket, which keeps the default name, remain. Either
+  empty the bucket (which destroys every blob) and delete the stack
+  again, or keep the blobs: delete the stack with
+  `--retain-resources BlobBucket` (the bucket stays, outside any
+  stack; not yet run) and deploy the new store with `--suffix <x>`.
+  The details are in `SKILL.md`,
+  Operations, Teardown (written for an assistant; the commands work
+  just as well by hand).
 
-## Earlier Terraform version
+## Other ways to deploy
 
-This repo previously deployed with Terraform (plus a CloudFormation
-bootstrap for its state bucket). That route is still supported, in
-[`alternatives/terraform/`](alternatives/terraform/README.md): it uses
-the same handler file as the template, and its STORE-TEST scorecard
-is preserved in `SCORECARD.md`. Existing Terraform deployments are
-unaffected; that README says how to keep managing one from the new
-location. New deployments should use the template above.
+The one-paste above is the main path, and the one releases are
+tested on. If you'd rather work
+differently, [`ALTERNATIVES.md`](ALTERNATIVES.md) covers the other
+routes, including a more hands-on Terraform one, and what each
+trades off.
 
 ## Acknowledgments
 
