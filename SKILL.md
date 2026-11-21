@@ -332,6 +332,14 @@ afterwards so the bucket is left empty of test data.
 - [ ] The Terraform route under `alternatives/terraform/` still
       zips `lambda/index.py` (CI checks this) and passes
       `terraform validate`.
+- [ ] The release notes record the SHA-256 of both assets.
+- [ ] From a clean, unauthenticated fetch, both asset URLs
+      download and hash-match `template.yaml` and `deploy.sh` at
+      the release tag.
+- [ ] It's published as a full release, marked latest: not a
+      draft or pre-release. README's badge and
+      `releases/latest` skip those, so README would point
+      readers at nothing.
 
 ## Friction table (observed live, 2026-11-20)
 

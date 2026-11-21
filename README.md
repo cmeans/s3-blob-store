@@ -1,6 +1,7 @@
 # s3-blob-store
 
 [![CI](https://github.com/cmeans/s3-blob-store/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/cmeans/s3-blob-store/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/cmeans/s3-blob-store)](https://github.com/cmeans/s3-blob-store/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/cmeans/s3-blob-store)](LICENSE)
 
 A dedicated store for ciphertext blobs, built on Amazon S3 with a
@@ -108,7 +109,9 @@ https://raw.githubusercontent.com/cmeans/s3-blob-store/<release>/SKILL.md
   call it done.
 ```
 
-Replace `<release>` with the release you want installed, so
+Replace `<release>` with the release you want installed, normally
+the latest ([releases](https://github.com/cmeans/s3-blob-store/releases);
+the badge at the top shows its tag, e.g. `v0.1.0`), so
 the playbook your assistant follows is the one that matches
 the template it deploys. Your part in that flow is a few short
 moments: saving the login, an MFA or verification code when
@@ -146,7 +149,8 @@ tested on.)
    download files, and step 4 needs a download.
 
 3. **Paste the one line**, with `<release>` replaced by the
-   release you are installing (e.g. `v1.0.0`):
+   release you are installing, normally the latest (the badge at
+   the top shows its tag, e.g. `v0.1.0`):
 
    ```
    curl -fsSL -O https://github.com/cmeans/s3-blob-store/releases/download/<release>/template.yaml -O https://github.com/cmeans/s3-blob-store/releases/download/<release>/deploy.sh && bash deploy.sh
