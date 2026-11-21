@@ -17,6 +17,10 @@ store is a custom connector: Muse calls the Function URL with a
 bearer token its connector holds, and needs no AWS credentials. The
 playbook in `SKILL.md` lets Muse, or another assistant that can
 browse and hold credentials, deploy and verify the store for you.
+For a screen over the store, an optional operator console built as a
+Muse Space lives in its own repo,
+[`cmeans/s3-blob-store-muse`](https://github.com/cmeans/s3-blob-store-muse);
+the store doesn't need it.
 
 The store never sees plaintext. Callers store and fetch ciphertext;
 decryption, if any, happens on the caller's side with keys the store
