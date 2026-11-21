@@ -22,6 +22,12 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    # Used by main.tf's archive_file data source. Declared so
+    # Dependabot, which reads only required_providers, tracks it.
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
   }
 
   backend "s3" {
