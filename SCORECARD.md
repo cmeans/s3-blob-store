@@ -184,9 +184,10 @@ function was gone.
 
 The first live deployment, made with what is now the Terraform route
 in `alternatives/terraform/`, following the STORE-TEST protocol from
-the `encrypted-credential-handoff` tool in muse-field-kit: dummy
-age-encrypted blobs only, scratch label `store-test`, every blob
-verified after fetch with the handoff check tool, all test material
+the Credential Lockbox tool in muse-field-kit
+(then named `encrypted-credential-handoff`): dummy age-encrypted
+blobs only, scratch label `store-test`, every blob verified after
+fetch with its check tool (`consume.py --check`), all test material
 deleted afterwards.
 
 | Check | Score | Evidence in one line |
