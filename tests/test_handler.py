@@ -148,6 +148,24 @@ class HandlerTest(unittest.TestCase):
         self.assertEqual(self.call("PUT", "/blobs/s", auth, body=body), (400, "body must be UTF-8 text"))
         self.assertNotIn("blobs/s", self.s3.objects)
 
+    def test_body_with_replacement_character_is_a_400(self):
+        # A text body's invalid bytes reach the handler already replaced
+        # with U+FFFD (STORE-TEST 2026-11-21: ff fe 00 61 62 63 sent as
+        # text/plain arrived as U+FFFD U+FFFD 00 61 62 63). Refuse it
+        # rather than store the mangled text, on either path.
+        auth = f"Bearer {TOKEN}"
+        fffd = chr(0xFFFD)
+        mangled = fffd + fffd + "\x00abc"
+        cases = (
+            (mangled, False),
+            ("ok" + fffd, False),
+            (base64.b64encode(mangled.encode("utf-8")).decode(), True),
+        )
+        for body, b64 in cases:
+            with self.subTest(body=body, b64=b64):
+                self.assertEqual(self.call("PUT", "/blobs/r", auth, body=body, b64=b64), (400, "body must be UTF-8 text"))
+                self.assertNotIn("blobs/r", self.s3.objects)
+
     def test_odd_authorization_values_are_refused_not_crashed(self):
         for auth in (1, None, "Bearer " + chr(0xD800)):
             with self.subTest(auth=repr(auth)):

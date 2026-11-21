@@ -76,10 +76,13 @@ Errors: 401 `unauthorized` (missing or wrong token), 404
 `method not allowed`, 400 `invalid label` (label fails
 validation), 400 `body must be UTF-8 text` (a body the Function
 URL hands over base64-encoded that isn't valid base64 or UTF-8,
-or a text body that can't be encoded as UTF-8). How a non-UTF-8
-body sent as text (for example `text/plain`) arrives hasn't been
-tested yet ([#12](https://github.com/cmeans/s3-blob-store/issues/12)):
-send UTF-8 text, as Bodies below says.
+a text body that can't be encoded as UTF-8, or any body
+containing U+FFFD, the replacement character). The U+FFFD rule is
+there because a non-UTF-8 body sent as text (for example
+`text/plain`) reaches the handler with each invalid byte already
+replaced by U+FFFD (STORE-TEST, 2026-11-21): refusing it keeps
+mangled text from being stored. A blob can't contain U+FFFD for
+the same reason; ASCII-armored ciphertext never does.
 
 **Labels:** letters, digits, dot, dash, underscore, starting
 with a letter or digit; at most 128 characters. Colons and slashes are not allowed — if your

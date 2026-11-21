@@ -244,12 +244,8 @@ Resources:
                   try:
                       obj = s3.get_object(Bucket=BUCKET, Key=key)
                   except ClientError as err:
-                      # A missing key surfaces as NoSuchKey only for callers
-                      # with s3:ListBucket; this role deliberately has none
-                      # (listing is not part of the store's contract), so S3
-                      # answers AccessDenied instead — it does not confirm or
-                      # deny existence to a caller that may not list. Both mean
-                      # the same thing to the caller here: no such blob.
+                      # No s3:ListBucket, so S3 says AccessDenied for a missing
+                      # key; to the caller both mean no such blob.
                       if err.response["Error"]["Code"] in ("NoSuchKey", "404", "AccessDenied", "403"):
                           return _reply(404, "not found")
                       raise
@@ -262,6 +258,9 @@ Resources:
                           body = base64.b64decode(body, validate=True).decode("utf-8")
                       except ValueError:  # bad base64 or non-UTF-8 bytes
                           return _reply(400, "body must be UTF-8 text")
+                  # U+FFFD: a text body's non-UTF-8 bytes arrive replaced by it.
+                  if "�" in body:
+                      return _reply(400, "body must be UTF-8 text")
                   try:
                       data = body.encode("utf-8")
                   except UnicodeEncodeError:  # e.g. a lone surrogate in a text body
