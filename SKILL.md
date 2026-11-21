@@ -109,10 +109,14 @@ Give the user these steps; they take about five minutes.
    read: exit 0 means the token is live (save it), 1 that it
    isn't (delete the file), 2 still can't tell (it also says that
    for a token file under 10 minutes old that isn't live yet, in
-   case a deploy in another tab is still applying it, and when
-   there's no token file at all: if the session ended after an
-   exit 2, that token is lost and the store may run it, so with
-   the user's OK, rotate with `--rotate`). A "needs repair" note means a stack in a
+   case a deploy in another tab is still applying it). With no
+   token file at all, `--check` reads the stack: no store is exit
+   1, nothing to do; a running store is exit 2. That is fine if
+   the user saved the token and deleted the file. But if the
+   session ended after an exit 2, the token is lost: test the
+   previous token, if any, with `GET /`. A 200 means the lost one
+   never went live and nothing is needed; a 401 (or no previous
+   token) means rotate, with the user's OK. A "needs repair" note means a stack in a
    failed state: report it to the user. Never tell the user a
    token is live, or that it isn't, from anything but those exit
    codes.
@@ -290,8 +294,8 @@ afterwards so the bucket is left empty of test data.
   `aws s3 rm s3://<BlobBucketName>/blobs/ --recursive`, then
   delete the stack again. To keep the blobs instead, delete the
   stack with `--retain-resources BlobBucket` (the bucket stays,
-  outside any stack) and deploy any new store with a
-  `NameSuffix`, since the old bucket keeps the default name.
+  outside any stack) and deploy any new store with
+  `--suffix <x>`, since the old bucket keeps the default name.
   (Not yet run end to end.)
 
 ## Release checklist (maintainers)

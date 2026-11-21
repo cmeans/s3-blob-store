@@ -676,25 +676,42 @@ class CheckTest(Base):
         self.assertIn("couldn't read", r.stdout)
         self.assertNotIn("Traceback", r.stdout + r.stderr)
 
-    def test_no_file_is_cant_tell_and_points_at_rotation(self):
-        r, _ = self.run_script("--check")
-        self.assertEqual(r.returncode, 2)
-        self.assertIn("No token file", r.stdout)
-        self.assertIn(f"bash deploy.sh --suffix {self.suffix} --rotate", r.stdout)
+    def test_no_file_and_no_store_is_nothing_to_do(self):
+        for status in ("none", "ROLLBACK_COMPLETE", "DELETE_COMPLETE"):
+            with self.subTest(status=status):
+                self.set_stack(status)
+                r, _ = self.run_script("--check")
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn("nothing to do", r.stdout)
+                self.assertNotIn("--rotate", r.stdout)
+
+    def test_no_file_while_busy_or_unreadable_is_cant_tell(self):
+        for status, env in (("UPDATE_IN_PROGRESS", {}), ("UPDATE_COMPLETE", {"FAKE_DESCRIBE": "error"})):
+            with self.subTest(status=status, env=env):
+                self.set_stack(status)
+                r, _ = self.run_script("--check", **env)
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertNotIn("--rotate", r.stdout)
 
     def test_token_lost_after_an_unconfirmed_rotation(self):
-        # QA round 1 on #23: exit 2, the session ends (the file goes), the
-        # rotation completes; --check must not read as "not live".
-        self.set_stack("UPDATE_COMPLETE")
-        r, _ = self.run_script("--rotate", FAKE_DEPLOY="interrupted")
-        self.assertEqual(r.returncode, 2, r.stdout)
-        self.assertIn("in this same CloudShell session", r.stdout)
-        digest = hashlib.sha256(self.token_file.read_bytes()).hexdigest()
-        self.token_file.unlink()
-        self.set_stack("UPDATE_COMPLETE", digest)
-        r, _ = self.run_script("--check")
-        self.assertEqual(r.returncode, 2, r.stdout)
-        self.assertIn("--rotate", r.stdout)
+        # QA round 1 on #23: exit 2, then the session ends and takes the
+        # file; whether the rotation applied or rolled back, --check can't
+        # say "not live", and it says to test the previous token before
+        # rotating (a rotation after a rollback would kill a working token).
+        for end in ("UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"):
+            with self.subTest(end=end):
+                self.set_stack("UPDATE_COMPLETE")
+                self.token_file.unlink(missing_ok=True)
+                r, _ = self.run_script("--rotate", FAKE_DEPLOY="interrupted")
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn("in this same shell session", r.stdout)
+                digest = hashlib.sha256(self.token_file.read_bytes()).hexdigest()
+                self.token_file.unlink()
+                self.set_stack(end, digest if end == "UPDATE_COMPLETE" else OLD)
+                r, _ = self.run_script("--check")
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn("test the previous token", r.stdout)
+                self.assertIn(f"bash deploy.sh --suffix {self.suffix} --rotate", r.stdout)
 
 
 class TemplateNamesTest(unittest.TestCase):

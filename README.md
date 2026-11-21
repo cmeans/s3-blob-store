@@ -185,8 +185,9 @@ the one-paste below is the supported path.)
      side), it keeps the file and tells you to run `bash deploy.sh
      --check` once the stack has finished changing, in the same
      CloudShell session: the file is in `/tmp`, which is cleared
-     when the session ends. (If it's lost that way, `--check` says
-     so and tells you to rotate.) `--check` also
+     when the session ends. (If it's lost that way, `--check` can't
+     tell whether its token went live; it says how to find out
+     with the previous token, and when to rotate.) `--check` also
      prints the stack's outputs when the token is live, so you
      still get the `FunctionUrl`.
 

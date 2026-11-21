@@ -16,8 +16,9 @@
 # live token; 1 failed, the new token isn't live, its file was removed; 2
 # the outcome isn't known yet, the token file is kept (run --check later);
 # 3 stopped before deploying, nothing changed (see the message).
-# Exit status of --check: 0 live; 1 not live; 2 can't tell (yet), including
-# no token file at all, since a lost file may have held the live token.
+# Exit status of --check: 0 live; 1 not live (or no file and no store); 2
+# can't tell (yet), including no token file while a store runs, since a lost
+# file may have held the live token.
 
 set -u
 set -o pipefail
@@ -219,8 +220,23 @@ repair_note() {
 if [ $check = 1 ]; then
   foreign_token_path 2 "Can't tell" ""
   if [ ! -f "$token_file" ]; then
-    say "No token file at $token_file. If you saved its token and deleted the file, there's nothing to do."
-    say "But if a deploy or rotation ended unconfirmed (exit 2) and this CloudShell session has restarted since, that token is lost (/tmp is cleared with the session) and the store may be running it: rotate with $me --rotate."
+    # No file to compare. What's left to say depends on whether a store
+    # is running at all.
+    read_status
+    case "$status" in
+      unreadable)
+        say "No token file at $token_file, and stack $stack couldn't be read. AWS said:"
+        say "$status_err"
+        exit 2 ;;
+      none|REVIEW_IN_PROGRESS|ROLLBACK_COMPLETE|DELETE_COMPLETE)
+        say "No token file at $token_file, and stack $stack has no working store (${status}): no token is live, so there's nothing to do. (Deployed under another name? Use the same --suffix.)"
+        exit 1 ;;
+      *_IN_PROGRESS)
+        say "No token file at $token_file, and stack $stack is $status. Run $me --check again once it has finished changing."
+        exit 2 ;;
+    esac
+    say "No token file at $token_file. If you saved its token and then deleted the file, there's nothing to do."
+    say "If a deploy or rotation ended unconfirmed (exit 2) and the file has been lost since (in CloudShell, /tmp is cleared when the session ends), test the previous token, if there was one, with GET / (README, step 5): 200 means the lost token never went live, so there's nothing to do. A 401, or no previous token, means the store may run the lost one: rotate with $me --rotate."
     exit 2
   fi
   mine=$(file_digest)
@@ -377,7 +393,7 @@ fi
 #    only on what the store says, never on the exit code alone.
 unconfirmed() {
   say "The deploy's outcome isn't confirmed yet ($1). The token file $token_file is KEPT: it may be the live token."
-  say "Once the stack has finished changing and AWS can be read, run, in this same CloudShell session (the file is in /tmp, which goes when the session ends): $me --check"
+  say "Once the stack has finished changing and AWS can be read, run $me --check in this same shell session (the file is in /tmp; in CloudShell, /tmp is cleared when the session ends)."
   say "It says whether the token in the file is live (save it) or not (delete the file; any previous token still works)."
   exit 2
 }
