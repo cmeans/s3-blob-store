@@ -106,7 +106,9 @@ Give the user these steps; they take about five minutes.
    deploy.sh --check` (with the same `--suffix`) once the stack
    has finished changing and AWS can be read: exit 0 means the
    token is live (save it), 1 that it isn't (delete the file), 2
-   still can't tell. A "needs repair" note means a stack in a
+   still can't tell (it also says that for a token file under 10
+   minutes old that isn't live yet, in case a deploy in another
+   tab is still applying it). A "needs repair" note means a stack in a
    failed state: report it to the user. Never tell the user a
    token is live, or that it isn't, from anything but those exit
    codes.

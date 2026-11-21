@@ -15,6 +15,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -356,6 +357,30 @@ class DeployTest(Base):
         self.assertEqual(self.deploys(log), [])
         r, _ = self.run_script("--check")
         self.assertEqual(r.returncode, 2)
+        self.assertNotIn("run this again", r.stdout)
+
+    def test_short_write_of_the_token_file_stops_and_leaves_nothing(self):
+        # python3 on PATH becomes the real one under a file-size limit.
+        shim_dir = self.dir / "shim"
+        shim_dir.mkdir()
+        shim = shim_dir / "python3"
+        shim.write_text(f"""#!{sys.executable}
+import os, resource, sys
+n = int(os.environ["FAKE_FSIZE"])
+resource.setrlimit(resource.RLIMIT_FSIZE, (n, n))
+os.execv({sys.executable!r}, [{sys.executable!r}] + sys.argv[1:])
+""", encoding="utf-8")
+        shim.chmod(0o755)
+        for size in ("0", "32"):
+            with self.subTest(fsize=size):
+                self.set_stack("none")
+                r, log = self.run_script(FAKE_FSIZE=size,
+                                         PATH=f"{shim_dir}:{self.dir / 'bin'}:{os.environ['PATH']}")
+                self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+                self.assertIn("couldn't create", r.stdout)
+                self.assertIn("Python said", r.stdout)
+                self.assertFalse(self.token_file.exists())
+                self.assertEqual(self.deploys(log), [])
 
     def test_link_or_directory_at_the_token_path_stops(self):
         target = self.dir / "elsewhere"
@@ -515,21 +540,20 @@ class FailedDeployTest(Base):
         self.assert_no_temp_files()
 
     def test_function_lookup_errors_after_a_failed_deploy(self):
-        for mode, rc, text in (("throttle", 2, "Rate exceeded"), ("gone", 2, "changed while")):
-            with self.subTest(mode=mode):
-                self.set_stack("UPDATE_COMPLETE")
-                self.token_file.unlink(missing_ok=True)
-                r, _ = self.run_script("--rotate", FAKE_DEPLOY="fail-early", FAKE_RESOURCE=mode)
-                if mode == "gone":
-                    # gone on both readings: the new token isn't live
-                    self.assertEqual(r.returncode, 1, r.stdout)
-                    self.assertIn("no working store", r.stdout)
-                    self.assertFalse(self.token_file.exists())
-                else:
-                    self.assertEqual(r.returncode, rc, r.stdout)
-                    self.assertIn(text, r.stdout)
-                    self.assertIn("KEPT", r.stdout)
-                    self.assert_token_file()
+        # Throttled: can't tell, so the file is kept.
+        self.set_stack("UPDATE_COMPLETE")
+        r, _ = self.run_script("--rotate", FAKE_DEPLOY="fail-early", FAKE_RESOURCE="throttle")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("Rate exceeded", r.stdout)
+        self.assertIn("KEPT", r.stdout)
+        self.assert_token_file()
+        # The function is gone on both readings: the new token isn't live.
+        self.set_stack("UPDATE_COMPLETE")
+        self.token_file.unlink()
+        r, _ = self.run_script("--rotate", FAKE_DEPLOY="fail-early", FAKE_RESOURCE="gone")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("no working store", r.stdout)
+        self.assertFalse(self.token_file.exists())
 
     def test_second_reading_unreadable_keeps_the_file(self):
         self.set_stack("UPDATE_COMPLETE")
@@ -556,8 +580,12 @@ class FailedDeployTest(Base):
 
 
 class CheckTest(Base):
-    def write_token(self, token):
+    def write_token(self, token, age_minutes=60):
+        """A token file `age_minutes` old (old enough by default that a
+        deploy elsewhere can't still be applying it)."""
         self.token_file.write_text(token, encoding="utf-8")
+        when = time.time() - age_minutes * 60
+        os.utime(self.token_file, (when, when))
         return hashlib.sha256(token.encode()).hexdigest()
 
     def test_live(self):
@@ -594,12 +622,26 @@ class CheckTest(Base):
         self.assertEqual(r.returncode, 2, r.stdout)
         self.assertIn("Rate exceeded", r.stdout)
 
-    def test_unrun_change_set_is_not_live_yet(self):
-        self.set_stack("REVIEW_IN_PROGRESS", self.write_token("a" * 64))
+    def test_young_file_not_live_now_is_cant_tell_yet(self):
+        # A deploy in another tab still creating or applying its change set.
+        for status, digest in (("REVIEW_IN_PROGRESS", OLD), ("UPDATE_COMPLETE", OLD), ("none", OLD)):
+            with self.subTest(status=status):
+                self.write_token("a" * 64, age_minutes=2)
+                self.set_stack(status, digest)
+                r, _ = self.run_script("--check")
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn("only 2 minutes old", r.stdout)
+                self.assertIn("another tab", r.stdout)
+        self.write_token("a" * 64, age_minutes=10)
+        self.set_stack("UPDATE_COMPLETE", OLD)
         r, _ = self.run_script("--check")
         self.assertEqual(r.returncode, 1, r.stdout)
-        self.assertIn("NOT LIVE yet", r.stdout)
-        self.assertIn("another tab", r.stdout)
+        self.assertIn("NOT LIVE", r.stdout)
+
+    def test_young_live_file_is_live(self):
+        self.set_stack("UPDATE_COMPLETE", self.write_token("a" * 64, age_minutes=0))
+        r, _ = self.run_script("--check")
+        self.assertEqual(r.returncode, 0, r.stdout)
 
     def test_not_live(self):
         self.write_token("a" * 64)
