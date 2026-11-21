@@ -4,7 +4,8 @@ Two deploy routes, each STORE-TESTed against a live stack it created:
 the CloudFormation template (the current route, both ways of running
 the one-paste) and the earlier Terraform deployment. Every run used a
 scratch stack and dummy data in the maintainer's own AWS account
-(us-east-2), and was cleaned up afterwards. The newest run is first.
+(us-east-2), and was cleaned up afterwards. Sections are newest
+first.
 
 ## CloudFormation template, pre-release, 2026-11-21
 
@@ -25,16 +26,21 @@ table but one it allows to be skipped.
 `9ea79f240d02d15ccdd7c1f5d30e9b839531115487770d480cd2256b713e1fc9`.
 Both fetched from the repository at that commit and hash-checked.
 
-Every endpoint and `deploy.sh` check passed, except one: a `PUT` of
+The first deploy (`bash deploy.sh --suffix sttest`) gave
+`Deployed.`, exit 0. Every endpoint and `deploy.sh` check passed
+(`--check`, the re-run refusal and rotation included), except one:
+a `PUT` of
 the bytes `ff fe 00 61 62 63` with `Content-Type: text/plain`
 returned 200 `stored`, and a GET returned
 `ef bf bd ef bf bd 00 61 62 63`. The Function URL decodes a text
 body before the handler sees it and replaces each invalid byte with
 U+FFFD, so the handler's UTF-8 check never fired and the mangled
 text was stored. #28 makes the handler refuse any body containing
-U+FFFD. Not covered by this run: the lowercase `bearer` scheme, the
-resource-policy condition and a direct invoke, which #28 then added
-to the table.
+U+FFFD. Not covered by this run: the five rows #28 then added to the
+table (lowercase `bearer`, the same bytes as
+`application/octet-stream`, a `café` round trip, the
+resource-policy condition and a direct invoke), and the 22-character
+`--suffix` refusal.
 
 ### Run 2: commit 17251e9
 
@@ -77,8 +83,8 @@ because test blobs were still in the bucket and S3 won't delete a
 non-empty bucket (the behavior `README.md` and `SKILL.md`
 describe); emptying the scratch bucket and deleting the stack again
 succeeded. Delete the test labels before the stack, as the
-STORE-TEST section says, to avoid it. Token files and the downloaded
-scripts were removed from CloudShell.
+STORE-TEST section says, to avoid it. Token files were removed from
+CloudShell after both runs, and the downloaded scripts after run 2.
 
 ## CloudFormation template, 2026-11-20
 

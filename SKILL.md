@@ -2,10 +2,11 @@
 
 This file is the playbook for an AI assistant deploying or
 operating an s3-blob-store on behalf of its user. Paths A and B
-and the STORE-TEST were exercised live on 2026-11-20 (evidence in
-`SCORECARD.md`), with the endpoint checks as they stood then;
-Path C (signup), rotation and teardown of a store holding blobs
-have not been run end to end. The human-facing story is in
+and the STORE-TEST were exercised live on 2026-11-20, and the
+current STORE-TEST table, rotation and a teardown with blobs still
+in the bucket on scratch stacks on 2026-11-21 (evidence in
+`SCORECARD.md`). Path C (signup) and `--retain-resources` haven't
+been run end to end. The human-facing story is in
 `README.md`; wiring a finished deployment into daily use is in
 `SETUP.md`.
 
@@ -288,7 +289,8 @@ afterwards so the bucket is left empty of test data.
   earlier token file is still in `/tmp`: get that one saved or
   deleted first. It generates a fresh token and digest and updates
   the stack in place; the old token stops working when the
-  update completes. Not yet run end to end. Move the
+  update completes. Run on a scratch stack, 2026-11-21
+  (`SCORECARD.md`). Move the
   new token into the password manager / secure registration
   (SETUP.md) and delete the file copy as usual. Do this
   immediately if a token may have leaked — a leaked token is
@@ -310,7 +312,7 @@ afterwards so the bucket is left empty of test data.
   stack with `--retain-resources BlobBucket` (the bucket stays,
   outside any stack) and deploy any new store with
   `--suffix <x>`, since the old bucket keeps the default name.
-  (Not yet run end to end.)
+  (`--retain-resources` hasn't been run yet.)
 
 ## Release checklist (maintainers)
 
