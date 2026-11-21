@@ -20,8 +20,10 @@ permissions:
 
 jobs:
   # A new push resets the PR to Awaiting CI and removes stale QA/workflow
-  # labels. Dev Active stays (it coexists with Awaiting CI: CI runs, but
-  # won't promote until Dev Active is removed).
+  # labels, Muse's verdict labels included: Dev's merge gates on Muse
+  # Approved for the current head (maintainer, 2026-11-21), so a verdict on
+  # an older head must not carry over. Dev Active stays (it coexists with
+  # Awaiting CI: CI runs, but won't promote until Dev Active is removed).
   on-push:
     if: >-
       (github.event.action == 'opened' || github.event.action == 'synchronize')
@@ -45,7 +47,7 @@ jobs:
           fi
 
           REMOVE=""
-          for LABEL in "Ready for QA" "Ready for QA Signoff" "QA Approved" "QA Active" "QA Failed" "CI Failed"; do
+          for LABEL in "Ready for QA" "Ready for QA Signoff" "QA Approved" "QA Active" "QA Failed" "CI Failed" "Muse Approved" "Muse Failed"; do
             if echo "$PR_LABELS" | grep -q "\"$LABEL\""; then
               REMOVE="${REMOVE:+$REMOVE,}$LABEL"
             fi
