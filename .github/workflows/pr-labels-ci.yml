@@ -1,8 +1,10 @@
 name: PR Label Automation (CI)
 
 # Label transitions when the CI workflow finishes on a PR: Awaiting CI ->
-# Ready for QA on success, -> CI Failed on failure. Skipped while Dev Active
-# is on (pr-labels.yml's on-unlabel takes over when it comes off).
+# Ready for QA on success, -> CI Failed on any other conclusion (failure,
+# timed_out, cancelled, startup_failure, action_required and the rest:
+# issue cmeans/muse-field-kit#124). Skipped while Dev Active is on (pr-labels.yml's on-unlabel
+# takes over when it comes off).
 # Adapted from muse-field-kit.
 #
 # NOTE: references the CI workflow by its name ("CI"): if ci.yml's `name:`
@@ -13,9 +15,12 @@ name: PR Label Automation (CI)
 # PR's copy, so a change to it takes effect only after merge. On the PR that
 # adds it, the transitions are made by hand.
 #
-# Fork PRs: this runs with the base repository's token, but finds a PR only
-# by its head commit and head repository, so a fork can't steer it at
-# another PR.
+# Fork PRs: a fork PR's CI run uses the fork's own workflow files, so a fork
+# could gut ci.yml (or add any workflow named "CI") and have it succeed. This
+# job runs with the base repository's token, so it acts only on runs from this
+# repository's own branches (head_repository == this repository): fork PRs
+# are labeled by hand, as pr-labels.yml already does for them (issue cmeans/muse-field-kit#121).
+# Within that, it finds a PR only by its head commit and head repository.
 #
 # workflow_dispatch is here so the file can be run once by hand after it
 # first lands: the workflow_run listener doesn't always register until the
@@ -35,7 +40,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_run'
       && github.event.workflow_run.event == 'pull_request'
-      && contains(fromJSON('["success","failure","timed_out"]'), github.event.workflow_run.conclusion)
+      && github.event.workflow_run.head_repository.full_name == github.repository
+      && github.event.workflow_run.status == 'completed'
     runs-on: ubuntu-latest
     concurrency:
       group: pr-labels-ci-${{ github.event.workflow_run.head_sha }}
@@ -50,6 +56,7 @@ jobs:
           CONCLUSION: ${{ github.event.workflow_run.conclusion }}
         run: |
           set -euo pipefail
+          echo "CI on $HEAD_SHA: $CONCLUSION"
           # The open PR whose head commit AND head repository match this run.
           # Never by branch name: a fork chooses its branch name, and a fork
           # branch named after a maintainer branch would relabel that PR. A
@@ -67,8 +74,12 @@ jobs:
             echo "Dev Active present — skipping"
             exit 0
           fi
-          if ! echo "$LABELS" | grep -qx "Awaiting CI"; then
-            echo "PR #$PR isn't at Awaiting CI — nothing to do"
+          # CI Failed counts too: a run cancelled for this same head (a
+          # reopen while CI runs, or a cancel and re-run) sets CI Failed,
+          # and the run that replaces it must still be able to promote
+          # (QA on cmeans/muse-field-kit#125). The head check below keeps a stale result out.
+          if ! echo "$LABELS" | grep -qx -e "Awaiting CI" -e "CI Failed"; then
+            echo "PR #$PR isn't at Awaiting CI or CI Failed — nothing to do"
             exit 0
           fi
 
@@ -82,11 +93,15 @@ jobs:
           fi
 
           if [ "$CONCLUSION" = success ]; then
-            REMOVE="Awaiting CI"
-            if echo "$LABELS" | grep -qx "CI Failed"; then REMOVE="$REMOVE,CI Failed"; fi
+            REMOVE=""
+            for L in "Awaiting CI" "CI Failed"; do
+              if echo "$LABELS" | grep -qx "$L"; then REMOVE="${REMOVE:+$REMOVE,}$L"; fi
+            done
             gh pr edit "$PR" --repo "$REPO" --remove-label "$REMOVE"
             gh pr edit "$PR" --repo "$REPO" --add-label "Ready for QA"
-          else
+          elif echo "$LABELS" | grep -qx "Awaiting CI"; then
             gh pr edit "$PR" --repo "$REPO" --remove-label "Awaiting CI"
             gh pr edit "$PR" --repo "$REPO" --add-label "CI Failed"
+          else
+            echo "PR #$PR is already at CI Failed"
           fi
