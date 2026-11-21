@@ -96,14 +96,19 @@ Give the user these steps; they take about five minutes.
 
    If the deploy fails or is interrupted, the script compares
    the token file with the digest the store's function holds
-   before touching the file. Exit 0: the store runs the new
-   token, a deploy after all. Exit 1: it doesn't, nothing
-   changed, and the file was removed. Exit 2: it can't tell yet,
-   and the file is kept. Then run `bash deploy.sh --check` (with
-   the same `--suffix`) once the stack settles: exit 0 means the
+   before touching the file, twice, 20 seconds apart (don't
+   interrupt that pause; a Ctrl-C there keeps the file). Exit 0:
+   the store runs the new token, a deploy after all. Exit 1: the
+   new token isn't live, and its file was removed (the message
+   says whether the previous token still works). Exit 2: it
+   can't tell yet, and the file is kept. Then run `bash
+   deploy.sh --check` (with the same `--suffix`) once the stack
+   has finished changing and AWS can be read: exit 0 means the
    token is live (save it), 1 that it isn't (delete the file), 2
-   still can't tell. Never tell the user a token is live, or
-   that it isn't, from anything but those exit codes.
+   still can't tell. A "needs repair" note means a stack in a
+   failed state: report it to the user. Never tell the user a
+   token is live, or that it isn't, from anything but those exit
+   codes.
 
    The deploy takes ~100 seconds of "Waiting for stack
    create/update to complete" — that is normal, not a stall.

@@ -42,6 +42,7 @@ case "$1 $2" in
       echo "An error occurred (Throttling) when calling the DescribeStacks operation: Rate exceeded" >&2; exit 254
     fi
     [ "${FAKE_DESCRIBE:-}" = empty ] && exit 0
+    [ "${FAKE_DESCRIBE:-}" = odd ] && { echo "Stack with id x does not exist" >&2; exit 0; }
     if [ "$status" = none ]; then
       echo "An error occurred (ValidationError) when calling the DescribeStacks operation: Stack with id x does not exist" >&2; exit 254
     fi
@@ -60,6 +61,9 @@ case "$1 $2" in
   "lambda get-function-configuration")
     [ "${FAKE_LAMBDA:-}" = error ] && { echo "AccessDenied" >&2; exit 254; }
     [ "${FAKE_LAMBDA:-}" = none ] && { echo None; exit 0; }
+    if [ "$(cat "$FAKE_DIR/digest")" = missing ]; then
+      echo "An error occurred (ResourceNotFoundException) when calling the GetFunctionConfiguration operation: Function not found" >&2; exit 254
+    fi
     case "$*" in *"--function-name fake-function "*"Environment.Variables.BEARER_TOKEN_SHA256 "*) cat "$FAKE_DIR/digest" ;; *) echo None ;; esac
     exit 0 ;;
   "cloudformation deploy")
@@ -68,10 +72,16 @@ case "$1 $2" in
       ok)
         if [ "$status" = none ] || [ "$status" = REVIEW_IN_PROGRESS ]; then echo CREATE_COMPLETE; else echo UPDATE_COMPLETE; fi > "$FAKE_DIR/status"
         echo "$new" > "$FAKE_DIR/digest"; exit 0 ;;
-      fail-early) exit 255 ;;
+      fail-early) [ -n "${FAKE_DESCRIBE_STATUS:-}" ] && echo "$FAKE_DESCRIBE_STATUS" > "$FAKE_DIR/status"; exit 255 ;;
       late-execute) touch "$FAKE_DIR/late"; exit 255 ;;
       changeset-failed) echo REVIEW_IN_PROGRESS > "$FAKE_DIR/status"; exit 255 ;;
-      fail-create) echo "${FAKE_CREATE_END:-ROLLBACK_COMPLETE}" > "$FAKE_DIR/status"; exit 255 ;;
+      fail-create) echo "${FAKE_CREATE_END:-ROLLBACK_COMPLETE}" > "$FAKE_DIR/status"; echo missing > "$FAKE_DIR/digest"; exit 255 ;;
+      # delayed: fails now; FAKE_DELAY seconds later the stack becomes
+      # FAKE_LATER (and, with FAKE_LATER_NEW=1, holds the new digest).
+      delayed)
+        ( sleep "${FAKE_DELAY:-1}"; echo "${FAKE_LATER:-UPDATE_IN_PROGRESS}" > "$FAKE_DIR/status"
+          [ -n "${FAKE_LATER_NEW:-}" ] && echo "$new" > "$FAKE_DIR/digest" ) >/dev/null 2>&1 &
+        exit 255 ;;
       fail-update) echo UPDATE_ROLLBACK_COMPLETE > "$FAKE_DIR/status"; exit 255 ;;
       interrupted) echo UPDATE_IN_PROGRESS > "$FAKE_DIR/status"; exit 130 ;;
       applied-then-error) echo UPDATE_COMPLETE > "$FAKE_DIR/status"; echo "$new" > "$FAKE_DIR/digest"; exit 255 ;;
@@ -161,6 +171,13 @@ class DeployTest(Base):
     def test_empty_status_reply_stops(self):
         self.set_stack("UPDATE_COMPLETE")
         r, log = self.run_script("--rotate", FAKE_DESCRIBE="empty")
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("couldn't read the state", r.stdout)
+        self.assertEqual(self.deploys(log), [])
+
+    def test_does_not_exist_on_a_successful_call_is_not_believed(self):
+        self.set_stack("UPDATE_COMPLETE")
+        r, log = self.run_script(FAKE_DESCRIBE="odd")
         self.assertEqual(r.returncode, 3)
         self.assertIn("couldn't read the state", r.stdout)
         self.assertEqual(self.deploys(log), [])
@@ -319,6 +336,13 @@ class FailedDeployTest(Base):
                 self.assertIn("still runs the previous token", r.stdout)
                 self.assertFalse(self.token_file.exists())
 
+    def test_failed_rotation_on_a_stack_that_needs_repair_says_so(self):
+        self.set_stack("UPDATE_COMPLETE")
+        r, _ = self.run_script("--rotate", FAKE_DEPLOY="fail-early",
+                               FAKE_DESCRIBE_STATUS="UPDATE_ROLLBACK_FAILED")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("needs repair", r.stdout)
+
     def test_error_after_the_store_took_the_new_token_counts_as_deployed(self):
         self.set_stack("UPDATE_COMPLETE")
         r, _ = self.run_script("--rotate", FAKE_DEPLOY="applied-then-error")
@@ -341,6 +365,10 @@ class FailedDeployTest(Base):
                 self.assertIn("KEPT", r.stdout)
                 self.assertIn(f"bash deploy.sh --suffix {self.suffix} --check", r.stdout)
                 self.assertNotIn("save it", r.stdout.lower().replace("(save it)", ""))
+                if env.get("FAKE_DESCRIBE") == "after":
+                    self.assertIn("Rate exceeded", r.stdout)
+                if env.get("FAKE_LAMBDA") == "error":
+                    self.assertIn("AccessDenied", r.stdout)
                 self.assert_token_file()
 
     def test_update_that_shows_late_keeps_the_file(self):
@@ -349,6 +377,54 @@ class FailedDeployTest(Base):
         self.assertEqual(r.returncode, 2, r.stdout)
         self.assertIn("changed while the script waited", r.stdout)
         self.assertIn("KEPT", r.stdout)
+        self.assert_token_file()
+
+    def test_the_pause_sees_an_update_that_shows_late(self):
+        cases = ((dict(FAKE_LATER="UPDATE_IN_PROGRESS"), 2, "changed while the script waited"),
+                 (dict(FAKE_LATER="DELETE_COMPLETE"), 2, "changed while the script waited"),
+                 (dict(FAKE_LATER="UPDATE_COMPLETE", FAKE_LATER_NEW="1"), 0, "now runs the new token"))
+        for env, rc, text in cases:
+            with self.subTest(env=env):
+                self.set_stack("UPDATE_COMPLETE")
+                self.token_file.unlink(missing_ok=True)
+                r, _ = self.run_script("--rotate", FAKE_DEPLOY="delayed", FAKE_DELAY="1",
+                                       DEPLOY_SH_SETTLE_SECONDS="3", **env)
+                self.assertEqual(r.returncode, rc, r.stdout)
+                self.assertIn(text, r.stdout)
+                self.assertIn("Checking again in 3s", r.stdout)
+                self.assert_token_file()
+
+    def test_default_pause_is_20_seconds_and_bad_values_fall_back(self):
+        script = (REPO / "deploy.sh").read_text(encoding="utf-8")
+        self.assertIn('settle=${DEPLOY_SH_SETTLE_SECONDS:-20}\n[[ "$settle" =~ ^[0-9]+$ ]] || settle=20', script)
+
+    def test_ctrl_c_during_the_pause_keeps_the_file(self):
+        # "abc" isn't whole seconds, so the pause falls back to 20 s; the
+        # stack would show the update after 5 s. Ctrl-C comes first.
+        self.set_stack("UPDATE_COMPLETE")
+        p = subprocess.Popen(["bash", "deploy.sh", "--rotate", "--suffix", self.suffix], cwd=self.work,
+                             env=self.env(FAKE_DEPLOY="delayed", FAKE_DELAY="5",
+                                          DEPLOY_SH_SETTLE_SECONDS="abc"),
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                             start_new_session=True)
+        out = []
+        start = time.monotonic()
+        try:
+            for line in p.stdout:
+                out.append(line)
+                if line.startswith("Checking again in 20s"):
+                    os.killpg(p.pid, signal.SIGINT)
+                    break
+            out.append(p.communicate(timeout=20)[0])
+        finally:
+            if p.poll() is None:
+                os.killpg(p.pid, signal.SIGKILL)
+                p.communicate()
+        text = "".join(out)
+        self.assertEqual(p.returncode, 2, text)
+        self.assertIn("interrupted while waiting", text)
+        self.assertIn("KEPT", text)
+        self.assertLess(time.monotonic() - start, 15)
         self.assert_token_file()
 
     def test_unreadable_state_after_a_failed_first_deploy_keeps_the_file(self):
@@ -394,14 +470,27 @@ class CheckTest(Base):
         self.assertEqual(self.deploys(log), [])
 
     def test_live_on_a_stack_that_needs_repair(self):
-        self.set_stack("UPDATE_ROLLBACK_FAILED", self.write_token("a" * 64))
-        r, _ = self.run_script("--check")
-        self.assertEqual(r.returncode, 0, r.stdout)
-        self.assertIn("needs repair", r.stdout)
+        digest = self.write_token("a" * 64)
+        for status in ("UPDATE_ROLLBACK_FAILED", "ROLLBACK_FAILED", "DELETE_FAILED"):
+            with self.subTest(status=status):
+                self.set_stack(status, digest)
+                r, _ = self.run_script("--check")
+                self.assertEqual(r.returncode, 0, r.stdout)
+                self.assertIn("LIVE", r.stdout)
+                self.assertIn("needs repair", r.stdout)
+
+    def test_failed_stack_whose_function_is_gone_is_not_live(self):
+        self.write_token("a" * 64)
+        for status in ("DELETE_FAILED", "ROLLBACK_FAILED"):
+            with self.subTest(status=status):
+                self.set_stack(status, "missing")
+                r, _ = self.run_script("--check")
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn("NOT LIVE", r.stdout)
 
     def test_not_live(self):
         self.write_token("a" * 64)
-        for status in ("UPDATE_COMPLETE", "none", "REVIEW_IN_PROGRESS", "ROLLBACK_COMPLETE"):
+        for status in ("UPDATE_COMPLETE", "none", "REVIEW_IN_PROGRESS", "ROLLBACK_COMPLETE", "DELETE_COMPLETE"):
             with self.subTest(status=status):
                 self.set_stack(status, OLD)
                 r, _ = self.run_script("--check")

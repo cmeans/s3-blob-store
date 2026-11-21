@@ -13,7 +13,7 @@
 # the deploy, and never printed. Only its SHA-256 digest goes to AWS.
 #
 # Exit status of a deploy or rotation: 0 deployed, the token file holds the
-# live token; 1 failed and nothing changed, the token file was removed; 2
+# live token; 1 failed, the new token isn't live, its file was removed; 2
 # the outcome isn't known yet, the token file is kept (run --check later);
 # 3 stopped before deploying, nothing changed (see the message).
 # Exit status of --check: 0 live; 1 not live; 2 can't tell yet.
@@ -69,14 +69,16 @@ else
 fi
 token_file="/tmp/$stack-token.txt"
 me="bash deploy.sh${suffix:+ --suffix $suffix}"
-# How long to wait before trusting a "nothing changed" reading after a
+# How long to wait before trusting a "not live" answer after a
 # failed deploy (an update the CLI started can take a moment to show).
+# The variable exists for the tests; anything but whole seconds is ignored.
 settle=${DEPLOY_SH_SETTLE_SECONDS:-20}
+[[ "$settle" =~ ^[0-9]+$ ]] || settle=20
 
 # Reads the stack's status into $status: a CloudFormation status, "none"
 # (no such stack), or "unreadable" (with AWS's message in $status_err).
 # stdout and stderr are kept apart, so a CLI warning can't pass for a
-# status, and "does not exist" is only believed from the error itself.
+# status, and "does not exist" is only believed from a failed call.
 read_status() {
   local errf out rc
   errf=$(mktemp) || { status=unreadable; status_err="couldn't create a temporary file"; return; }
@@ -95,17 +97,37 @@ read_status() {
   fi
 }
 
-# The digest the store's function actually holds (the stack parameter is
-# NoEcho, so the function's configuration is the only place to read it).
-# Prints nothing unless it reads a well-formed digest.
-live_digest() {
-  local fn d
+# Reads the digest the store's function holds (the stack parameter is
+# NoEcho, so the function's configuration is the only place to read it)
+# into $live, and how that went into $fn_state: "ok", "missing" (AWS says
+# the function doesn't exist) or "error" (with AWS's message in $fn_err).
+read_function() {
+  local errf fn rc
+  live=
+  errf=$(mktemp) || { fn_state=error; fn_err="couldn't create a temporary file"; return; }
   fn=$(aws cloudformation describe-stack-resource --stack-name "$stack" \
     --logical-resource-id BlobFunction \
-    --query "StackResourceDetail.PhysicalResourceId" --output text 2>/dev/null) || return 1
-  d=$(aws lambda get-function-configuration --function-name "$fn" \
-    --query "Environment.Variables.BEARER_TOKEN_SHA256" --output text 2>/dev/null) || return 1
-  [[ "$d" =~ ^[0-9a-f]{64}$ ]] && printf '%s' "$d"
+    --query "StackResourceDetail.PhysicalResourceId" --output text 2>"$errf")
+  rc=$?
+  if [ $rc -ne 0 ] || [ -z "$fn" ] || [ "$fn" = None ]; then
+    fn_err=$(cat "$errf"); rm -f "$errf"
+    if [[ "$fn_err" == *"does not exist"* ]]; then fn_state=missing; else fn_state=error; fi
+    return
+  fi
+  live=$(aws lambda get-function-configuration --function-name "$fn" \
+    --query "Environment.Variables.BEARER_TOKEN_SHA256" --output text 2>"$errf")
+  rc=$?
+  fn_err=$(cat "$errf"); rm -f "$errf"
+  if [ $rc -ne 0 ]; then
+    live=
+    if [[ "$fn_err" == *ResourceNotFoundException* ]]; then fn_state=missing; else fn_state=error; fi
+  elif [[ "$live" =~ ^[0-9a-f]{64}$ ]]; then
+    fn_state=ok
+  else
+    fn_state=error
+    fn_err="the function has no well-formed BEARER_TOKEN_SHA256 (got: ${live:-nothing})"
+    live=
+  fi
 }
 
 file_digest() {
@@ -117,16 +139,43 @@ outputs() {
     --query "Stacks[0].Outputs" --output table
 }
 
-# States in which the stack has no working function, so no token is live.
-is_gone() {
-  case "$1" in none|REVIEW_IN_PROGRESS|ROLLBACK_COMPLETE|ROLLBACK_FAILED|DELETE_COMPLETE) return 0 ;; *) return 1 ;; esac
-}
-
 is_settled() {
   case "$1" in
     CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE|IMPORT_COMPLETE|IMPORT_ROLLBACK_COMPLETE) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+# The one place that decides what the store's state means for a token
+# whose digest is $1. Sets $result:
+#   gone     no working function, so no token is live
+#   match    the function holds this digest: the token is live
+#   other    the function holds another digest
+#   busy     the stack is changing: ask again when it's done
+#   unknown  AWS couldn't be read (the reason is in $why)
+# and $repair=1 when the stack is in a *_FAILED state that needs repair.
+# Order matters: REVIEW_IN_PROGRESS is gone, not busy, so it's tested first.
+assess() {
+  read_status
+  why="stack status: $status"
+  repair=0
+  case "$status" in
+    unreadable) why="couldn't read stack $stack; AWS said: $status_err"; result=unknown; return ;;
+    none|REVIEW_IN_PROGRESS|ROLLBACK_COMPLETE|DELETE_COMPLETE) result=gone; return ;;
+    *_IN_PROGRESS) result=busy; return ;;
+  esac
+  is_settled "$status" || repair=1
+  read_function
+  case "$fn_state" in
+    missing) result=gone ;;
+    error) why="$why; couldn't read the store's token digest from its function; AWS said: ${fn_err:-nothing}"; result=unknown ;;
+    ok) if [ "$live" = "$1" ]; then result=match; else result=other; fi ;;
+  esac
+}
+
+repair_note() {
+  [ "$repair" = 1 ] && say "Note: stack $stack is $status and needs repair in the CloudFormation console before it can be deployed or rotated again."
+  return 0
 }
 
 # --check: compare the token file with the live digest.
@@ -144,35 +193,28 @@ if [ $check = 1 ]; then
     say "Can't tell: couldn't read $token_file."
     exit 2
   fi
-  read_status
-  if [ "$status" = unreadable ]; then
-    say "Can't tell: couldn't read stack $stack. AWS said:"
-    say "$status_err"
-    exit 2
-  fi
-  if is_gone "$status"; then
-    say "NOT LIVE: stack $stack has no working store (${status}). The token in $token_file is no use; delete the file."
-    exit 1
-  fi
-  if [[ "$status" == *_IN_PROGRESS ]]; then
-    say "Can't tell yet: stack $stack is $status. Run $me --check again once it finishes."
-    exit 2
-  fi
-  live=$(live_digest)
-  if [ -z "$live" ]; then
-    say "Can't tell: couldn't read the store's token digest from its function."
-    exit 2
-  fi
-  if ! is_settled "$status"; then
-    say "Note: stack $stack is $status and needs repair in the CloudFormation console; the answer below is for its function as it is now."
-  fi
-  if [ "$mine" = "$live" ]; then
-    outputs
-    say "LIVE: the token in $token_file is the store's current token. Save it (README, step 4)."
-    exit 0
-  fi
-  say "NOT LIVE: the store uses a different token. The token in $token_file is no use; delete the file."
-  exit 1
+  assess "$mine"
+  case "$result" in
+    gone)
+      say "NOT LIVE: stack $stack has no working store (${status}). The token in $token_file is no use; delete the file."
+      repair_note
+      exit 1 ;;
+    match)
+      outputs
+      say "LIVE: the token in $token_file is the store's current token. Save it (README, step 4)."
+      repair_note
+      exit 0 ;;
+    other)
+      say "NOT LIVE: the store uses a different token. The token in $token_file is no use; delete the file."
+      repair_note
+      exit 1 ;;
+    busy)
+      say "Can't tell yet: stack $stack is $status. Run $me --check again once it has finished changing."
+      exit 2 ;;
+    *)
+      say "Can't tell: $why"
+      exit 2 ;;
+  esac
 fi
 
 if [ ! -f template.yaml ]; then
@@ -262,67 +304,56 @@ deployed() {
   else
     say "Deployed. The token is in $token_file: take it out with Actions > Download file (README, step 4)."
   fi
+  repair_note
   exit 0
 }
 
 if [ $deploy_rc -eq 0 ]; then
   trap - INT
+  repair=0
   deployed
 fi
 
 # 5. The deploy failed or was interrupted. Keep or remove the token file
 #    only on what the store says, never on the exit code alone.
 unconfirmed() {
-  say "The deploy's outcome isn't confirmed yet (${1}). The token file $token_file is KEPT: it may be the live token."
-  say "Once the stack finishes changing, run: $me --check"
+  say "The deploy's outcome isn't confirmed yet ($1). The token file $token_file is KEPT: it may be the live token."
+  say "Once the stack has finished changing and AWS can be read, run: $me --check"
   say "It says whether the token in the file is live (save it) or not (delete the file; any previous token still works)."
   exit 2
 }
 
-# One reading, into $result: "gone", "new" (the store runs the new token),
-# "old" (it doesn't), or "unknown" (with the reason in $why).
-reading() {
-  local live
-  read_status
-  why="stack status: $status"
-  if [ "$status" = unreadable ]; then result=unknown; return; fi
-  if is_gone "$status"; then result=gone; return; fi
-  if [[ "$status" == *_IN_PROGRESS ]]; then result=unknown; return; fi
-  live=$(live_digest)
-  if [ -z "$live" ]; then why="$why, and the store's token digest couldn't be read"; result=unknown; return; fi
-  if [ "$live" = "$digest" ]; then result=new; else result=old; fi
-}
-
-reading
+assess "$digest"
 first=$result
-if [ "$first" = new ]; then
-  trap - INT
-  say "The deploy command reported an error, but the store now runs the new token."
-  deployed
-fi
-[ "$first" = unknown ] && unconfirmed "$why"
+case "$first" in
+  match) trap - INT; say "The deploy command reported an error, but the store now runs the new token."; deployed ;;
+  busy|unknown) unconfirmed "$why" ;;
+esac
 
-# "Nothing changed" is about to delete the file: read again after a pause,
-# in case an update the CLI started hasn't shown yet.
+# "Not live" is about to delete the file: read again after a pause, in case
+# an update the CLI started hasn't shown yet. A Ctrl-C now keeps the file.
+trap 'say ""; unconfirmed "interrupted while waiting to check again"' INT
 say "Checking again in ${settle}s before removing the token file..."
 sleep "$settle"
-trap - INT
-reading
+assess "$digest"
 second=$result
-if [ "$second" = new ]; then
+if [ "$second" = match ]; then
+  trap - INT
   say "The deploy command reported an error, but the store now runs the new token."
   deployed
 fi
 [ "$second" = "$first" ] || unconfirmed "$why (it changed while the script waited)"
 
+trap '' INT
 rm -f "$token_file"
-if [ "$mode" = rotate ] && [ "$second" = old ]; then
+if [ "$mode" = rotate ] && [ "$second" = other ]; then
   say "Rotation failed (see above): the store still runs the previous token, which still works. The new token file was removed."
 elif [ "$mode" = rotate ]; then
-  say "Rotation failed (see above), and stack $stack now has no working store. The new token file was removed."
+  say "Rotation failed (see above), and stack $stack now has no working store (${status}). The new token file was removed."
 elif [ "$second" = gone ]; then
-  say "Deploy failed (see above): no store was created, and the token file was removed."
+  say "Deploy failed (see above): no store was created (${status}), and the token file was removed."
 else
   say "Deploy failed (see above): the store doesn't run the new token, and the token file was removed."
 fi
+repair_note
 exit 1
