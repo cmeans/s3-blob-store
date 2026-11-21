@@ -90,20 +90,24 @@ CloudShell after both runs, and the downloaded scripts after run 2.
 ## CloudFormation template, 2026-11-20
 
 **Verdict: pass, both ways.** The template was deployed with the
-CloudShell one-paste from a GitHub release asset, twice: once with a
-human running the paste, and once with an assistant (Muse) doing the
-whole deployment from a login the account owner supplied. Each stack
-passed the same STORE-TEST the Terraform deployment passed.
+CloudShell one-paste as it was then (a direct download of
+`template.yaml`, before `deploy.sh` existed) from a GitHub release
+asset, twice: once with a human running the paste, and once with an
+assistant (Muse) doing the whole deployment from a login the account
+owner supplied. Each stack passed the same STORE-TEST the Terraform
+deployment passed.
 
 **What was deployed:** `template.yaml`, 11,627 bytes, SHA-256
 `9b7aa1a4a130d12dec62e6b45f51b98129b188300a538c1aef61c5f84fb9bcd8`:
 the same file as this repo's first `template.yaml` (`c685a4b`;
 later commits changed it). This repo had no release yet (its
 first is v0.1.0, 2026-11-21), so the file was attached by hand to a
-test release, `v0.1.0-cftest`, on a temporary repo deleted after
-both runs. The first run downloaded it from there and hash-checked
-it before the deploy. The second ran the same one-paste, so it
-fetched the same asset, but recorded no second hash check. Each run
+test release, `v0.1.0-cftest`, on a temporary repo
+(`cmeans/s3-blob-store-cf-test`), deleted afterward; it was still up
+for the second run, whose download succeeded. The first run
+downloaded it from there and hash-checked it before the deploy. The
+second ran the same one-paste, so it fetched the same asset, but
+recorded no second hash check. Each run
 used its own stack, its own `NameSuffix` and a throwaway token, so
 neither touched any other store.
 
