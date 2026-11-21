@@ -183,7 +183,10 @@ the one-paste below is the supported path.)
      removes the file. If it did, that's a deploy. If it can't tell
      yet (an interrupted deploy, for example, keeps going on AWS's
      side), it keeps the file and tells you to run `bash deploy.sh
-     --check` once the stack has finished changing. `--check` also
+     --check` once the stack has finished changing, in the same
+     CloudShell session: the file is in `/tmp`, which is cleared
+     when the session ends. (If it's lost that way, `--check` says
+     so and tells you to rotate.) `--check` also
      prints the stack's outputs when the token is live, so you
      still get the `FunctionUrl`.
 
@@ -296,7 +299,7 @@ hasn't been run yet.
   a new default stack would fail on it. To start over, either
   empty it (destroying every blob) and delete the stack again, or
   delete the stack with `--retain-resources BlobBucket` and deploy
-  the new store with a `NameSuffix` (`SKILL.md`, Isolation by
+  the new store with `--suffix <x>` (`SKILL.md`, Isolation by
   name). Not yet run end to end.
 - **Cost** at handoff scale is effectively zero: a handful of small
   S3 objects and a rarely-invoked Lambda.

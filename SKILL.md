@@ -103,12 +103,16 @@ Give the user these steps; they take about five minutes.
    new token isn't live, and its file was removed (the message
    says whether the previous token still works). Exit 2: it
    can't tell yet, and the file is kept. Then run `bash
-   deploy.sh --check` (with the same `--suffix`) once the stack
-   has finished changing and AWS can be read: exit 0 means the
-   token is live (save it), 1 that it isn't (delete the file), 2
-   still can't tell (it also says that for a token file under 10
-   minutes old that isn't live yet, in case a deploy in another
-   tab is still applying it). A "needs repair" note means a stack in a
+   deploy.sh --check` (with the same `--suffix`), in the same
+   CloudShell session (the file is in `/tmp`, which goes with the
+   session), once the stack has finished changing and AWS can be
+   read: exit 0 means the token is live (save it), 1 that it
+   isn't (delete the file), 2 still can't tell (it also says that
+   for a token file under 10 minutes old that isn't live yet, in
+   case a deploy in another tab is still applying it, and when
+   there's no token file at all: if the session ended after an
+   exit 2, that token is lost and the store may run it, so with
+   the user's OK, rotate with `--rotate`). A "needs repair" note means a stack in a
    failed state: report it to the user. Never tell the user a
    token is live, or that it isn't, from anything but those exit
    codes.

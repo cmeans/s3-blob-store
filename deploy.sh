@@ -16,7 +16,8 @@
 # live token; 1 failed, the new token isn't live, its file was removed; 2
 # the outcome isn't known yet, the token file is kept (run --check later);
 # 3 stopped before deploying, nothing changed (see the message).
-# Exit status of --check: 0 live; 1 not live; 2 can't tell yet.
+# Exit status of --check: 0 live; 1 not live; 2 can't tell (yet), including
+# no token file at all, since a lost file may have held the live token.
 
 set -u
 set -o pipefail
@@ -218,8 +219,9 @@ repair_note() {
 if [ $check = 1 ]; then
   foreign_token_path 2 "Can't tell" ""
   if [ ! -f "$token_file" ]; then
-    say "No token file at $token_file: nothing to check."
-    exit 1
+    say "No token file at $token_file. If you saved its token and deleted the file, there's nothing to do."
+    say "But if a deploy or rotation ended unconfirmed (exit 2) and this CloudShell session has restarted since, that token is lost (/tmp is cleared with the session) and the store may be running it: rotate with $me --rotate."
+    exit 2
   fi
   mine=$(file_digest)
   if ! [[ "$mine" =~ ^[0-9a-f]{64}$ ]]; then
@@ -375,7 +377,7 @@ fi
 #    only on what the store says, never on the exit code alone.
 unconfirmed() {
   say "The deploy's outcome isn't confirmed yet ($1). The token file $token_file is KEPT: it may be the live token."
-  say "Once the stack has finished changing and AWS can be read, run: $me --check"
+  say "Once the stack has finished changing and AWS can be read, run, in this same CloudShell session (the file is in /tmp, which goes when the session ends): $me --check"
   say "It says whether the token in the file is live (save it) or not (delete the file; any previous token still works)."
   exit 2
 }

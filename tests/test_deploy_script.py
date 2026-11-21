@@ -676,10 +676,25 @@ class CheckTest(Base):
         self.assertIn("couldn't read", r.stdout)
         self.assertNotIn("Traceback", r.stdout + r.stderr)
 
-    def test_no_file(self):
+    def test_no_file_is_cant_tell_and_points_at_rotation(self):
         r, _ = self.run_script("--check")
-        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.returncode, 2)
         self.assertIn("No token file", r.stdout)
+        self.assertIn(f"bash deploy.sh --suffix {self.suffix} --rotate", r.stdout)
+
+    def test_token_lost_after_an_unconfirmed_rotation(self):
+        # QA round 1 on #23: exit 2, the session ends (the file goes), the
+        # rotation completes; --check must not read as "not live".
+        self.set_stack("UPDATE_COMPLETE")
+        r, _ = self.run_script("--rotate", FAKE_DEPLOY="interrupted")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("in this same CloudShell session", r.stdout)
+        digest = hashlib.sha256(self.token_file.read_bytes()).hexdigest()
+        self.token_file.unlink()
+        self.set_stack("UPDATE_COMPLETE", digest)
+        r, _ = self.run_script("--check")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("--rotate", r.stdout)
 
 
 class TemplateNamesTest(unittest.TestCase):
