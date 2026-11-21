@@ -138,7 +138,9 @@ In CloudShell, paste the deploy line from README step 3 again,
 from the current release, ending in `bash deploy.sh --rotate`
 instead of `bash deploy.sh` (add `--suffix <x>` for a suffixed
 store; SKILL.md, Isolation by name). Without `--rotate` the
-script stops rather than rotate. It generates a fresh token and digest and updates
+script stops rather than rotate. Download from the current release
+each time: rotating with an older `template.yaml` would also roll the
+stack back to it. It generates a fresh token and digest and updates
 the stack in place; the FunctionUrl does not change. Then:
 
 1. Put the new token in the password manager.

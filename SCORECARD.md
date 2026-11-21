@@ -2,7 +2,8 @@
 
 Two deploy routes, each STORE-TESTed against a live stack it created:
 the CloudFormation template (the current route, both ways of running
-the one-paste) and the earlier Terraform deployment. Every run used a
+the one-paste) and the Terraform route (the store's first live
+deployment). Every run used a
 scratch stack and dummy data in the maintainer's own AWS account
 (us-east-2), and was cleaned up afterwards. Sections are newest
 first.

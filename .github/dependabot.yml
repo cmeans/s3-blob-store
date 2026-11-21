@@ -65,13 +65,14 @@ updates:
       terraform:
         patterns:
           - "*"
-    # The move to AWS provider 6.x is its own change (#20: provider
-    # >= 6.28 to scope the invoke grant to the function URL, after
-    # reading the 6.0 upgrade guide), so major versions are ignored.
-    # 5.100.0, which the lock file pins, is the last 5.x release, so
-    # until #20 this entry proposes nothing for hashicorp/aws; only
-    # hashicorp/archive can move. #20 revisits this ignore, so it
-    # doesn't go on to block 7.x without anyone deciding to.
+    # The move to AWS provider 6.x is its own change (the provider-6
+    # item in backlog #27, formerly #20: provider >= 6.28 to scope the
+    # invoke grant to the function URL, after reading the 6.0 upgrade
+    # guide), so major versions are ignored. 5.100.0, which the lock
+    # file pins, is the last 5.x release, so until then this entry
+    # proposes nothing for hashicorp/aws; only hashicorp/archive can
+    # move. That item revisits this ignore, so it doesn't go on to
+    # block 7.x without anyone deciding to.
     ignore:
       - dependency-name: "hashicorp/aws"
         update-types: ["version-update:semver-major"]
