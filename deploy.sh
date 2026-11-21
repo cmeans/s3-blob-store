@@ -23,6 +23,11 @@ set -o pipefail
 
 say() { printf '%s\n' "$*"; }
 
+# The stderr file of the AWS call in progress, if any: removed however the
+# script ends (a Ctrl-C mid-call included).
+errf=
+trap 'rm -f "${errf:-}"' EXIT
+
 usage() {
   say "Usage: bash deploy.sh [--rotate | --check] [--suffix <x>]"
   exit "$1"
@@ -80,13 +85,13 @@ settle=${DEPLOY_SH_SETTLE_SECONDS:-20}
 # stdout and stderr are kept apart, so a CLI warning can't pass for a
 # status, and "does not exist" is only believed from a failed call.
 read_status() {
-  local errf out rc
+  local out rc
   errf=$(mktemp) || { status=unreadable; status_err="couldn't create a temporary file"; return; }
   out=$(aws cloudformation describe-stacks --stack-name "$stack" \
     --query "Stacks[0].StackStatus" --output text 2>"$errf")
   rc=$?
   status_err=$(cat "$errf")
-  rm -f "$errf"
+  rm -f "$errf"; errf=
   if [ $rc -eq 0 ] && [[ "$out" =~ ^[A-Z_]+$ ]]; then
     status=$out
   elif [ $rc -ne 0 ] && [[ "$status_err" == *"does not exist"* ]]; then
@@ -102,7 +107,7 @@ read_status() {
 # into $live, and how that went into $fn_state: "ok", "missing" (AWS says
 # the function doesn't exist) or "error" (with AWS's message in $fn_err).
 read_function() {
-  local errf fn rc
+  local fn rc
   live=
   errf=$(mktemp) || { fn_state=error; fn_err="couldn't create a temporary file"; return; }
   fn=$(aws cloudformation describe-stack-resource --stack-name "$stack" \
@@ -110,14 +115,14 @@ read_function() {
     --query "StackResourceDetail.PhysicalResourceId" --output text 2>"$errf")
   rc=$?
   if [ $rc -ne 0 ] || [ -z "$fn" ] || [ "$fn" = None ]; then
-    fn_err=$(cat "$errf"); rm -f "$errf"
+    fn_err=$(cat "$errf"); rm -f "$errf"; errf=
     if [[ "$fn_err" == *"does not exist"* ]]; then fn_state=missing; else fn_state=error; fi
     return
   fi
   live=$(aws lambda get-function-configuration --function-name "$fn" \
     --query "Environment.Variables.BEARER_TOKEN_SHA256" --output text 2>"$errf")
   rc=$?
-  fn_err=$(cat "$errf"); rm -f "$errf"
+  fn_err=$(cat "$errf"); rm -f "$errf"; errf=
   if [ $rc -ne 0 ]; then
     live=
     if [[ "$fn_err" == *ResourceNotFoundException* ]]; then fn_state=missing; else fn_state=error; fi
@@ -130,8 +135,29 @@ read_function() {
   fi
 }
 
+# The token file's digest; prints nothing unless the path is a regular file
+# (opened without following a link, and without blocking on a FIFO).
 file_digest() {
-  python3 -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$token_file" 2>/dev/null
+  python3 -c '
+import hashlib, os, stat, sys
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+if not stat.S_ISREG(os.fstat(fd).st_mode):
+    sys.exit(1)
+print(hashlib.sha256(os.read(fd, 4096)).hexdigest())
+' "$token_file" 2>/dev/null
+}
+
+# Stops (exit $1) if something not this user's own regular file is at the
+# token path: a link, a directory, a FIFO, or another user's file.
+foreign_token_path() {
+  if [ -L "$token_file" ] || { [ -e "$token_file" ] && [ ! -f "$token_file" ]; }; then
+    say "$2: $token_file isn't a regular file (a link, a directory or a FIFO), so it isn't a token file this script wrote. Look at it, remove it, then run this again."
+    exit "$1"
+  fi
+  if [ -e "$token_file" ] && [ ! -O "$token_file" ]; then
+    say "$2: $token_file belongs to another user, so it isn't your token file and you can't remove it. Use --suffix <x> for a store of your own name, or ask an administrator to remove the file."
+    exit "$1"
+  fi
 }
 
 outputs() {
@@ -180,10 +206,7 @@ repair_note() {
 
 # --check: compare the token file with the live digest.
 if [ $check = 1 ]; then
-  if [ -L "$token_file" ] || { [ -e "$token_file" ] && [ ! -f "$token_file" ]; }; then
-    say "Can't tell: $token_file isn't a regular file (a link or a directory), so it isn't a token file this script wrote. Look at it, then remove it."
-    exit 2
-  fi
+  foreign_token_path 2 "Can't tell"
   if [ ! -f "$token_file" ]; then
     say "No token file at $token_file: nothing to check."
     exit 1
@@ -196,7 +219,11 @@ if [ $check = 1 ]; then
   assess "$mine"
   case "$result" in
     gone)
-      say "NOT LIVE: stack $stack has no working store (${status}). The token in $token_file is no use; delete the file."
+      if [ "$status" = REVIEW_IN_PROGRESS ]; then
+        say "NOT LIVE yet: stack $stack has a change set that hasn't run (REVIEW_IN_PROGRESS). If a deploy is still running in another tab, let it finish and check again; otherwise the token in $token_file is no use: delete the file."
+      else
+        say "NOT LIVE: stack $stack has no working store (${status}). The token in $token_file is no use; delete the file."
+      fi
       repair_note
       exit 1 ;;
     match)
@@ -265,28 +292,30 @@ else
 fi
 
 # 2. Never overwrite a token file: it may hold a token not yet saved.
-if [ -L "$token_file" ] || { [ -e "$token_file" ] && [ ! -f "$token_file" ]; }; then
-  say "Stopped: $token_file isn't a regular file (a link or a directory), so it isn't a token file this script wrote. Look at it, remove it, then run this again."
-  exit 3
-fi
+foreign_token_path 3 "Stopped"
 if [ -e "$token_file" ]; then
   say "Stopped: $token_file already exists. It may hold a token you haven't saved yet."
   say "To find out whether it's live: $me --check. Save it if it is; then delete the file and run this again."
   exit 3
 fi
 
-# 3. The token and its digest, generated here; the token goes to the file
+# 3. The token, generated and written to the file by one Python process,
 #    before the deploy starts, so it's in the file however the deploy ends.
-read -r token digest < <(python3 -c 'import secrets,hashlib;t=secrets.token_hex(32);print(t,hashlib.sha256(t.encode()).hexdigest())')
-if ! [[ "${token:-}" =~ ^[0-9a-f]{64}$ && "${digest:-}" =~ ^[0-9a-f]{64}$ ]]; then
-  say "Stopped: couldn't generate a token (is python3 available?). Nothing was changed."
+#    The file is created exclusively (O_EXCL, no links followed, mode 600):
+#    anything at the path by now, put there by anyone, makes it fail. Only
+#    the digest comes back; the token never passes through this shell.
+digest=$(python3 -c '
+import hashlib, os, secrets, sys
+t = secrets.token_hex(32).encode()
+fd = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+os.write(fd, t)
+os.close(fd)
+print(hashlib.sha256(t).hexdigest())
+' "$token_file" 2>/dev/null)
+if ! [[ "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+  say "Stopped: couldn't create $token_file, or couldn't generate a token (is python3 available?). Nothing was changed."
   exit 3
 fi
-(set -C && umask 077 && printf '%s' "$token" > "$token_file") || {
-  say "Stopped: couldn't write $token_file. Nothing was changed."
-  exit 3
-}
-unset token
 
 # 4. Deploy. Ctrl-C stops the CLI's wait, not the stack update, so it's
 #    handled like any other failure: by asking the store what happened.
@@ -332,7 +361,7 @@ esac
 
 # "Not live" is about to delete the file: read again after a pause, in case
 # an update the CLI started hasn't shown yet. A Ctrl-C now keeps the file.
-trap 'say ""; unconfirmed "interrupted while waiting to check again"' INT
+trap 'say ""; unconfirmed "interrupted before the second check finished"' INT
 say "Checking again in ${settle}s before removing the token file..."
 sleep "$settle"
 assess "$digest"
@@ -342,6 +371,7 @@ if [ "$second" = match ]; then
   say "The deploy command reported an error, but the store now runs the new token."
   deployed
 fi
+[ "$second" = unknown ] && unconfirmed "$why"
 [ "$second" = "$first" ] || unconfirmed "$why (it changed while the script waited)"
 
 trap '' INT

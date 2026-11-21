@@ -48,6 +48,10 @@ case "$1 $2" in
     fi
     case "$*" in
       *StackStatus*)
+        n=$(( $(cat "$FAKE_DIR/reads" 2>/dev/null || echo 0) + 1 )); echo $n > "$FAKE_DIR/reads"
+        if [ "${FAKE_DESCRIBE:-}" = third ] && [ $n -ge 3 ]; then
+          echo "An error occurred (Throttling) when calling the DescribeStacks operation: Rate exceeded" >&2; exit 254
+        fi
         echo "$status"
         # late-execute: the update shows only after the first read.
         if [ -e "$FAKE_DIR/late" ]; then rm "$FAKE_DIR/late"; echo UPDATE_IN_PROGRESS > "$FAKE_DIR/status"; fi ;;
@@ -57,6 +61,14 @@ case "$1 $2" in
   "cloudformation describe-stack-resource")
     [ "$status" = none ] && exit 254
     case "$*" in *"--logical-resource-id BlobFunction "*) ;; *) echo "no such resource" >&2; exit 254 ;; esac
+    case "${FAKE_RESOURCE:-}" in
+      throttle) echo "An error occurred (Throttling) when calling the DescribeStackResource operation: Rate exceeded" >&2; exit 254 ;;
+      gone) echo "An error occurred (ValidationError) when calling the DescribeStackResource operation: Resource BlobFunction does not exist for stack x" >&2; exit 254 ;;
+      hang) touch "$FAKE_DIR/waiting"; sleep 30; exit 254 ;;
+      hang-second)
+        m=$(( $(cat "$FAKE_DIR/resource-reads" 2>/dev/null || echo 0) + 1 )); echo $m > "$FAKE_DIR/resource-reads"
+        [ $m -ge 2 ] && { touch "$FAKE_DIR/waiting"; sleep 30; exit 254; } ;;
+    esac
     echo "fake-function"; exit 0 ;;
   "lambda get-function-configuration")
     [ "${FAKE_LAMBDA:-}" = error ] && { echo "AccessDenied" >&2; exit 254; }
@@ -116,12 +128,14 @@ class Base(unittest.TestCase):
     def set_stack(self, status, digest=OLD):
         (self.dir / "status").write_text(status + "\n", encoding="utf-8")
         (self.dir / "digest").write_text(digest + "\n", encoding="utf-8")
-        for f in ("log", "deployed"):
+        for f in ("log", "deployed", "reads", "waiting", "resource-reads"):
             (self.dir / f).unlink(missing_ok=True)
 
     def env(self, **extra):
+        self.tmpdir.mkdir(exist_ok=True)
         full = {"PATH": f"{self.dir / 'bin'}:{os.environ['PATH']}", "HOME": str(self.dir),
-                "FAKE_DIR": str(self.dir), "DEPLOY_SH_SETTLE_SECONDS": "0"}
+                "FAKE_DIR": str(self.dir), "DEPLOY_SH_SETTLE_SECONDS": "0",
+                "TMPDIR": str(self.tmpdir)}
         full.update(extra)
         return full
 
@@ -129,7 +143,66 @@ class Base(unittest.TestCase):
         argv = ["bash", "deploy.sh", *args] + (["--suffix", self.suffix] if suffix else [])
         r = subprocess.run(argv, cwd=self.work, env=self.env(**env),
                            capture_output=True, text=True, check=False, timeout=60)
+        self.assert_no_temp_files()
         return r, self.log()
+
+    @property
+    def tmpdir(self):
+        return self.dir / "tmp"
+
+    def assert_no_temp_files(self):
+        self.assertEqual(sorted(os.listdir(self.tmpdir)), [], "deploy.sh left temporary files")
+
+    def wait_for_sleep(self, pid, timeout=20):
+        """Until a `sleep` runs somewhere under pid: only then is a SIGINT
+        sure to land in it rather than before it starts."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            todo, seen = [pid], []
+            while todo:
+                q = todo.pop()
+                seen.append(q)
+                try:
+                    for t in os.listdir(f"/proc/{q}/task"):
+                        todo += [int(c) for c in Path(f"/proc/{q}/task/{t}/children").read_text().split()]
+                except OSError:
+                    pass
+            for q in seen[1:]:
+                try:
+                    if Path(f"/proc/{q}/comm").read_text().strip() == "sleep":
+                        return
+                except OSError:
+                    pass
+            time.sleep(0.05)
+        self.fail("no sleep started")
+
+    def interrupt(self, args, env, until=None, marker=None):
+        """Runs deploy.sh, sends Ctrl-C (SIGINT to its process group) once a
+        sleep runs under it (after a stdout line starting with `until`, if
+        given), and returns (rc, output)."""
+        p = subprocess.Popen(["bash", "deploy.sh", *args, "--suffix", self.suffix], cwd=self.work,
+                             env=self.env(**env), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, start_new_session=True)
+        out = []
+        try:
+            if until:
+                for line in p.stdout:
+                    out.append(line)
+                    if line.startswith(until):
+                        break
+            if marker:
+                deadline = time.monotonic() + 20
+                while not (self.dir / marker).exists():
+                    self.assertLess(time.monotonic(), deadline, f"{marker} never appeared")
+                    time.sleep(0.05)
+            self.wait_for_sleep(p.pid)
+            os.killpg(p.pid, signal.SIGINT)
+            out.append(p.communicate(timeout=20)[0])
+        finally:
+            if p.poll() is None:
+                os.killpg(p.pid, signal.SIGKILL)
+                p.communicate()
+        return p.returncode, "".join(out)
 
     def log(self):
         p = self.dir / "log"
@@ -274,6 +347,16 @@ class DeployTest(Base):
         self.assertEqual(self.token(), "unsaved")
         self.assertEqual(self.deploys(log), [])
 
+    def test_fifo_at_the_token_path_stops_and_check_does_not_hang(self):
+        os.mkfifo(self.token_file)
+        self.addCleanup(lambda: self.token_file.exists() and self.token_file.unlink())
+        r, log = self.run_script()
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("isn't a regular file", r.stdout)
+        self.assertEqual(self.deploys(log), [])
+        r, _ = self.run_script("--check")
+        self.assertEqual(r.returncode, 2)
+
     def test_link_or_directory_at_the_token_path_stops(self):
         target = self.dir / "elsewhere"
         self.token_file.symlink_to(target)
@@ -402,29 +485,59 @@ class FailedDeployTest(Base):
         # "abc" isn't whole seconds, so the pause falls back to 20 s; the
         # stack would show the update after 5 s. Ctrl-C comes first.
         self.set_stack("UPDATE_COMPLETE")
-        p = subprocess.Popen(["bash", "deploy.sh", "--rotate", "--suffix", self.suffix], cwd=self.work,
-                             env=self.env(FAKE_DEPLOY="delayed", FAKE_DELAY="5",
-                                          DEPLOY_SH_SETTLE_SECONDS="abc"),
-                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                             start_new_session=True)
-        out = []
         start = time.monotonic()
-        try:
-            for line in p.stdout:
-                out.append(line)
-                if line.startswith("Checking again in 20s"):
-                    os.killpg(p.pid, signal.SIGINT)
-                    break
-            out.append(p.communicate(timeout=20)[0])
-        finally:
-            if p.poll() is None:
-                os.killpg(p.pid, signal.SIGKILL)
-                p.communicate()
-        text = "".join(out)
-        self.assertEqual(p.returncode, 2, text)
-        self.assertIn("interrupted while waiting", text)
-        self.assertIn("KEPT", text)
+        rc, out = self.interrupt(["--rotate"], dict(FAKE_DEPLOY="delayed", FAKE_DELAY="5",
+                                                    DEPLOY_SH_SETTLE_SECONDS="abc"),
+                                 until="Checking again in 20s")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("interrupted before the second check finished", out)
+        self.assertIn("KEPT", out)
         self.assertLess(time.monotonic() - start, 15)
+        self.assert_token_file()
+        self.assert_no_temp_files()
+
+    def test_ctrl_c_during_an_aws_call_keeps_the_file_and_cleans_up(self):
+        self.set_stack("UPDATE_COMPLETE")
+        rc, out = self.interrupt(["--rotate"], dict(FAKE_DEPLOY="fail-early", FAKE_RESOURCE="hang"))
+        self.assertEqual(rc, 2, out)
+        self.assertIn("KEPT", out)
+        self.assert_token_file()
+        self.assert_no_temp_files()
+
+    def test_ctrl_c_during_the_second_readings_aws_call_cleans_up(self):
+        self.set_stack("UPDATE_COMPLETE")
+        rc, out = self.interrupt(["--rotate"], dict(FAKE_DEPLOY="fail-early", FAKE_RESOURCE="hang-second",
+                                                    DEPLOY_SH_SETTLE_SECONDS="1"),
+                                 marker="waiting")
+        self.assertEqual(rc, 2, out)
+        self.assertIn("KEPT", out)
+        self.assert_token_file()
+        self.assert_no_temp_files()
+
+    def test_function_lookup_errors_after_a_failed_deploy(self):
+        for mode, rc, text in (("throttle", 2, "Rate exceeded"), ("gone", 2, "changed while")):
+            with self.subTest(mode=mode):
+                self.set_stack("UPDATE_COMPLETE")
+                self.token_file.unlink(missing_ok=True)
+                r, _ = self.run_script("--rotate", FAKE_DEPLOY="fail-early", FAKE_RESOURCE=mode)
+                if mode == "gone":
+                    # gone on both readings: the new token isn't live
+                    self.assertEqual(r.returncode, 1, r.stdout)
+                    self.assertIn("no working store", r.stdout)
+                    self.assertFalse(self.token_file.exists())
+                else:
+                    self.assertEqual(r.returncode, rc, r.stdout)
+                    self.assertIn(text, r.stdout)
+                    self.assertIn("KEPT", r.stdout)
+                    self.assert_token_file()
+
+    def test_second_reading_unreadable_keeps_the_file(self):
+        self.set_stack("UPDATE_COMPLETE")
+        r, _ = self.run_script("--rotate", FAKE_DEPLOY="fail-early", FAKE_DESCRIBE="third")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("Rate exceeded", r.stdout)
+        self.assertNotIn("changed while", r.stdout)
+        self.assertIn("KEPT", r.stdout)
         self.assert_token_file()
 
     def test_unreadable_state_after_a_failed_first_deploy_keeps_the_file(self):
@@ -435,22 +548,8 @@ class FailedDeployTest(Base):
 
     def test_real_ctrl_c_mid_deploy_keeps_the_file(self):
         self.set_stack("UPDATE_COMPLETE")
-        p = subprocess.Popen(["bash", "deploy.sh", "--rotate", "--suffix", self.suffix],
-                             cwd=self.work, env=self.env(FAKE_DEPLOY="hang"),
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                             start_new_session=True)
-        try:
-            deadline = time.monotonic() + 20
-            while not (self.dir / "waiting").exists():
-                self.assertLess(time.monotonic(), deadline, "fake deploy never started")
-                time.sleep(0.05)
-            os.killpg(p.pid, signal.SIGINT)
-            out, _ = p.communicate(timeout=20)
-        finally:
-            if p.poll() is None:
-                os.killpg(p.pid, signal.SIGKILL)
-                p.communicate()
-        self.assertEqual(p.returncode, 2, out)
+        rc, out = self.interrupt(["--rotate"], dict(FAKE_DEPLOY="hang"))
+        self.assertEqual(rc, 2, out)
         self.assertIn("Interrupted", out)
         self.assertIn("KEPT", out)
         self.assert_token_file()
@@ -481,12 +580,26 @@ class CheckTest(Base):
 
     def test_failed_stack_whose_function_is_gone_is_not_live(self):
         self.write_token("a" * 64)
-        for status in ("DELETE_FAILED", "ROLLBACK_FAILED"):
-            with self.subTest(status=status):
+        for status, env in (("DELETE_FAILED", {}), ("ROLLBACK_FAILED", {}),
+                            ("DELETE_FAILED", {"FAKE_RESOURCE": "gone"})):
+            with self.subTest(status=status, env=env):
                 self.set_stack(status, "missing")
-                r, _ = self.run_script("--check")
+                r, _ = self.run_script("--check", **env)
                 self.assertEqual(r.returncode, 1, r.stdout)
                 self.assertIn("NOT LIVE", r.stdout)
+
+    def test_function_lookup_throttled_is_cant_tell(self):
+        self.set_stack("UPDATE_COMPLETE", self.write_token("a" * 64))
+        r, _ = self.run_script("--check", FAKE_RESOURCE="throttle")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("Rate exceeded", r.stdout)
+
+    def test_unrun_change_set_is_not_live_yet(self):
+        self.set_stack("REVIEW_IN_PROGRESS", self.write_token("a" * 64))
+        r, _ = self.run_script("--check")
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("NOT LIVE yet", r.stdout)
+        self.assertIn("another tab", r.stdout)
 
     def test_not_live(self):
         self.write_token("a" * 64)

@@ -96,8 +96,9 @@ Give the user these steps; they take about five minutes.
 
    If the deploy fails or is interrupted, the script compares
    the token file with the digest the store's function holds
-   before touching the file, twice, 20 seconds apart (don't
-   interrupt that pause; a Ctrl-C there keeps the file). Exit 0:
+   before touching the file and, before removing it, checks
+   again 20 seconds later (a Ctrl-C in that pause keeps the
+   file). Exit 0:
    the store runs the new token, a deploy after all. Exit 1: the
    new token isn't live, and its file was removed (the message
    says whether the previous token still works). Exit 2: it

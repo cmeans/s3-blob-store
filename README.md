@@ -167,9 +167,10 @@ the one-paste below is the supported path.)
      `/tmp`, so a token you haven't saved yet is never overwritten
      (`bash deploy.sh --check` says whether that file's token is
      live);
-   - generates the bearer token and its SHA-256 digest, and writes
-     the token to a private file in `/tmp` **before** deploying,
-     so it is in the file however the deploy ends. The token
+   - generates the bearer token and writes it to a new private
+     file in `/tmp` (mode 600, created only if nothing is at that
+     path yet) **before** deploying, so it is in the file however
+     the deploy ends. The token
      is never displayed: CloudShell replays terminal output on
      session restore, so it never goes to the screen;
    - deploys the stack with only the digest as a parameter, and
@@ -186,8 +187,11 @@ the one-paste below is the supported path.)
      prints the stack's outputs when the token is live, so you
      still get the `FunctionUrl`.
 
-   The token never exists in your own shell: the script runs in
-   its own process. If you already run a store from the Terraform
+   The token never exists in your own shell, or in the script's:
+   one Python process makes it, writes the file and hands back only
+   the digest. Run one deploy at a time per store: a second one
+   in another tab can't tell the first one's token apart from a
+   stale one until the first finishes. If you already run a store from the Terraform
    route in this account and region, use a suffixed stack
    (`SKILL.md`, Isolation by name): both routes derive the same
    bucket name.
