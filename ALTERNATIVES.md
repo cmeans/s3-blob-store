@@ -13,7 +13,8 @@ all are kept for people whose circumstances fit them better. They are
 documented, not supported: if one of them and the one-paste
 disagree, the one-paste is right.
 
-Shared prerequisite for all of them: the token and its digest.
+Shared prerequisite for sections 1, 2 and 4: the token and its
+digest (section 3 runs `deploy.sh`, which makes its own).
 Generate both wherever you have Python 3:
 
 ```
@@ -24,7 +25,7 @@ The first line is the token — into a password manager
 immediately. The second is the SHA-256 digest, the only form
 that ever goes into a stack parameter. Whichever path you
 take, finish with the endpoint check and wiring in `README.md`
-steps 5–6 / `SETUP.md`. These paths create no token file, so in
+steps 5–6 / `SETUP.md`. Sections 1, 2 and 4 create no token file, so in
 step 5 set `TOKEN` without typing it (`read -rs TOKEN`, then a
 paste from the password manager) instead of the `cat` line, and
 leave out the final `rm`.
@@ -79,20 +80,12 @@ the main path.
 ## 3. Local AWS CLI
 
 For users who already have the AWS CLI configured with
-credentials on their own machine, the one-paste's deploy step
-works unchanged outside CloudShell — it *is* a CLI command:
-
-```
-curl -fsSLO https://github.com/cmeans/s3-blob-store/releases/download/<release>/template.yaml
-aws cloudformation deploy --template-file template.yaml --stack-name s3-blob-store --capabilities CAPABILITY_IAM --parameter-overrides BearerTokenSha256=<digest>
-```
-
-Generate the token and digest with the generator above and
-handle the token as above (password manager, no terminal
-echo beyond the one generation, which you should clear from
-scrollback). Run `README.md` step 3's
-check for an existing stack first: deploying over one rotates
-its token. This path's only downside
+credentials on their own machine (bash and Python 3 too), the
+one-paste works unchanged outside CloudShell: `deploy.sh` only
+calls the AWS CLI. Run the README's step 3 line in an empty
+directory. It writes the token to `/tmp` on your machine, as in
+CloudShell; move it to your password manager and delete the
+file. This path's only downside
 is the prerequisite the main path exists to avoid: a local
 CLI install with working credentials.
 
