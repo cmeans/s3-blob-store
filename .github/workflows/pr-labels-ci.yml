@@ -3,8 +3,8 @@ name: PR Label Automation (CI)
 # Label transitions when the CI workflow finishes on a PR: Awaiting CI ->
 # Ready for QA on success, -> CI Failed on any other conclusion (failure,
 # timed_out, cancelled, startup_failure, action_required and the rest:
-# issue cmeans/muse-field-kit#124). Skipped while Dev Active is on (pr-labels.yml's on-unlabel
-# takes over when it comes off).
+# cmeans/muse-field-kit#124). Skipped while Dev Active is on (pr-labels.yml's
+# on-unlabel takes over when it comes off).
 # Adapted from muse-field-kit.
 #
 # NOTE: references the CI workflow by its name ("CI"): if ci.yml's `name:`
@@ -19,8 +19,9 @@ name: PR Label Automation (CI)
 # could gut ci.yml (or add any workflow named "CI") and have it succeed. This
 # job runs with the base repository's token, so it acts only on runs from this
 # repository's own branches (head_repository == this repository): fork PRs
-# are labeled by hand, as pr-labels.yml already does for them (issue cmeans/muse-field-kit#121).
-# Within that, it finds a PR only by its head commit and head repository.
+# are handled by hand (see qa-gate.yml), as pr-labels.yml already does for
+# them (cmeans/muse-field-kit#121). Within that, it finds a PR only by its
+# head commit and head repository.
 #
 # workflow_dispatch is here so the file can be run once by hand after it
 # first lands: the workflow_run listener doesn't always register until the
@@ -77,7 +78,8 @@ jobs:
           # CI Failed counts too: a run cancelled for this same head (a
           # reopen while CI runs, or a cancel and re-run) sets CI Failed,
           # and the run that replaces it must still be able to promote
-          # (QA on cmeans/muse-field-kit#125). The head check below keeps a stale result out.
+          # (QA on cmeans/muse-field-kit#125). The head check below keeps a
+          # stale result out.
           if ! echo "$LABELS" | grep -qx -e "Awaiting CI" -e "CI Failed"; then
             echo "PR #$PR isn't at Awaiting CI or CI Failed — nothing to do"
             exit 0

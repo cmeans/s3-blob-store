@@ -17,7 +17,7 @@ concurrency:
 jobs:
   # NOTE: pr-labels.yml and pr-labels-ci.yml find this workflow by its name
   # ("CI") and file (ci.yml). If either is renamed, update them too.
-  # main's ruleset is meant to require "ci-ok" (below), not this job: if
+  # main's ruleset requires "ci-ok" (below), not this job: if
   # ci-ok is renamed, update the ruleset, or every PR waits on a check that
   # never comes.
   checks:
@@ -110,7 +110,7 @@ jobs:
               echo "::endgroup::"
             done
 
-  # The one check main's ruleset should require. A required job that is
+  # The one check main's ruleset requires. A required job that is
   # skipped counts as passing, so every job above is gathered here, and this
   # one runs always and fails unless each of them succeeded. A new job must be
   # added to `needs`, or it gates nothing.
