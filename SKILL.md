@@ -302,7 +302,8 @@ afterwards so the bucket is left empty of test data.
   then verify the FunctionUrl returns an AWS-level error. S3
   refuses to delete a non-empty bucket, so with blobs still in
   it the bucket (and the blobs) stay, and the stack ends in
-  `DELETE_FAILED` (expected; not yet observed). Empty the
+  `DELETE_FAILED` (observed on a scratch stack, 2026-11-21;
+  `SCORECARD.md`). Empty the
   bucket only for a scratch stack, and only with the user's go:
   `aws s3 rm s3://<BlobBucketName>/blobs/ --recursive`, then
   delete the stack again. To keep the blobs instead, delete the

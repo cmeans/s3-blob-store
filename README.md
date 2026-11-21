@@ -301,7 +301,9 @@ hasn't been run yet.
   empty it (destroying every blob) and delete the stack again, or
   delete the stack with `--retain-resources BlobBucket` and deploy
   the new store with `--suffix <x>` (`SKILL.md`, Isolation by
-  name). Not yet run end to end.
+  name). Emptying and deleting again was run on a scratch stack on
+  2026-11-21 (`SCORECARD.md`); `--retain-resources` hasn't been run
+  yet.
 - **Cost** at handoff scale is effectively zero: a handful of small
   S3 objects and a rarely-invoked Lambda.
 
