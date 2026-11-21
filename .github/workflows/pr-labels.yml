@@ -24,9 +24,11 @@ jobs:
   # Approved for the current head (maintainer, 2026-11-21), so a verdict on
   # an older head must not carry over. A reopen runs it too: commits pushed
   # while a PR is closed may come with no synchronize event, and verdicts
-  # from before the close must not carry over to them (as in
-  # cmeans/muse-android-bridge#4). Dev Active stays (it coexists with
-  # Awaiting CI: CI runs, but won't promote until Dev Active is removed).
+  # from before the close must not carry over to them (raised in a
+  # comment on the private cmeans/mcp-phone-commands-archive#4; handled
+  # the same way in cmeans/muse-android-bridge#29). Dev Active stays (it
+  # coexists with Awaiting CI: CI runs, but won't promote until Dev Active
+  # is removed).
   on-push:
     if: >-
       (github.event.action == 'opened' || github.event.action == 'synchronize'
