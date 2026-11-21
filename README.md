@@ -6,8 +6,9 @@
 
 A dedicated store for ciphertext blobs, built on Amazon S3 with a
 Lambda Function URL as its only front door. It was built and tested
-as a store for the `encrypted-credential-handoff` pattern in
-[muse-field-kit](https://github.com/cmeans/muse-field-kit), where an
+as a store for
+[Credential Lockbox](https://github.com/cmeans/muse-field-kit/tree/main/credential-lockbox)
+in [muse-field-kit](https://github.com/cmeans/muse-field-kit), where an
 agent must fetch an encrypted blob unattended while holding no cloud
 credential of its own. It works just as well for any opaque text an
 agent needs to park by label and fetch later.
