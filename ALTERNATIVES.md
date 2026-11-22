@@ -70,7 +70,9 @@ For users who don't want a shell at all:
 2. CloudFormation console → *Create stack → With new
    resources* → *Upload a template file* → choose the file.
 3. Stack name `s3-blob-store`; paste the digest into
-   `BearerTokenSha256`; leave `NameSuffix` empty.
+   `BearerTokenSha256`; leave `NameSuffix` empty, and
+   `ReservedConcurrency` at 0 unless you want a cap (SETUP.md,
+   Capping concurrent calls).
 4. Acknowledge the IAM-role creation on the review page and
    create the stack. Outputs are the same as the one-paste's.
 
