@@ -149,6 +149,10 @@ resource "aws_lambda_function" "blobs" {
   timeout       = 10
   memory_size   = 128
 
+  # -1 is the provider's "no reservation"; 0 there would stop every
+  # call, so this variable's 0 maps to -1.
+  reserved_concurrent_executions = var.reserved_concurrency == 0 ? -1 : var.reserved_concurrency
+
   filename         = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
 

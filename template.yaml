@@ -40,6 +40,22 @@ Parameters:
       63-character limit in the longest commercial region names
       (14 characters).
 
+  ReservedConcurrency:
+    Type: String
+    Default: "0"
+    AllowedPattern: "^(0|[1-9][0-9]{0,3})$"
+    ConstraintDescription: Must be 0, or a whole number from 1 to 9999 with no leading zeros.
+    Description: >-
+      OPTIONAL cap on how many copies of the function run at once.
+      0 (the default) sets no cap: here 0 means "not set", unlike
+      Lambda's own 0, which stops every call. Each call is billed,
+      rejected ones too, so a small cap (5, say) limits what anyone
+      calling the public Function URL can run up; calls past it get
+      HTTP 429. AWS refuses a cap that would leave the account's
+      unreserved concurrency below 100, so on an account with a
+      low concurrency quota leave this at 0 (SETUP.md, Capping
+      concurrent calls).
+
 # The blob prefix, defined once: the role's grant and the handler's
 # BLOB_PREFIX both read it, so they can't drift apart.
 Mappings:
@@ -52,6 +68,10 @@ Conditions:
     - !Equals
       - !Ref NameSuffix
       - ""
+  HasReservedConcurrency: !Not
+    - !Equals
+      - !Ref ReservedConcurrency
+      - "0"
 
 Resources:
   # ----------------------------------------------------------------
@@ -159,6 +179,12 @@ Resources:
       Runtime: python3.13
       Timeout: 10
       MemorySize: 128
+      # 0 leaves the property out (no reservation); never pass 0 to
+      # Lambda, which would stop every call.
+      ReservedConcurrentExecutions: !If
+        - HasReservedConcurrency
+        - !Ref ReservedConcurrency
+        - !Ref AWS::NoValue
       Role: !GetAtt LambdaRole.Arn
       Environment:
         Variables:

@@ -29,7 +29,8 @@ bucket name (`handoff-blobs-<account>-<region>`).
   - `main.tf`: the resources. The Lambda's code is zipped from
     `../../lambda/index.py`.
   - `variables.tf`: the token digest, the region (default
-    `us-east-2`), and an optional bucket name suffix.
+    `us-east-2`), an optional bucket name suffix, and an optional
+    cap on the function's concurrency (below).
   - `outputs.tf`: bucket name, function URL, role ARN. None are
     secrets.
 
@@ -136,6 +137,23 @@ Run the commands from the repo root.
 **Token rotation:** generate a new token (step 3), apply with its
 digest, then update the credential wherever your agent platform holds
 it.
+
+**Capping concurrent calls:** `reserved_concurrency` (default 0, no
+cap) sets a reserved concurrency on the function, so that someone
+calling the public Function URL can't run up the bill; calls past it
+get HTTP `429`. A small value such as 5 is plenty for an assistant's
+occasional fetches. 0 here means "no cap" (it becomes the provider's
+`-1`), never Lambda's own 0, which stops every call. Unlike the
+template's parameter, Terraform keeps no previous value: give it on
+every apply, a rotation's included, or the cap goes back to 0. A
+`terraform.tfvars` file in this directory holding
+`reserved_concurrency = 5` does that (`*.tfvars` is git-ignored; keep
+the digest out of it). AWS refuses a cap that would leave the
+account's unreserved concurrency below 100, and new accounts start
+with a reduced quota: if the apply fails that way, leave it at 0.
+`aws lambda get-account-settings --query AccountLimit` shows the
+account's quota, and `aws lambda get-function-concurrency
+--function-name handoff-blob-store` the cap.
 
 ## If you deployed from an earlier version of this repo
 

@@ -42,3 +42,16 @@ variable "name_suffix" {
     error_message = "Must be empty, or 1-21 lowercase letters, digits and hyphens, starting and ending with a letter or digit."
   }
 }
+
+variable "reserved_concurrency" {
+  description = "Optional cap on how many copies of the function run at once. 0 (the default) sets no cap: here 0 means \"not set\", unlike the provider's own reserved_concurrent_executions = 0, which stops every call. Calls past the cap get HTTP 429. AWS refuses a cap that would leave the account's unreserved concurrency below 100; on an account with a low concurrency quota, leave this at 0."
+  type        = number
+  default     = 0
+  nullable    = false
+
+  # The same range as the template's ReservedConcurrency parameter.
+  validation {
+    condition     = var.reserved_concurrency == floor(var.reserved_concurrency) && var.reserved_concurrency >= 0 && var.reserved_concurrency <= 9999
+    error_message = "Must be 0, or a whole number from 1 to 9999."
+  }
+}

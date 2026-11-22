@@ -226,6 +226,32 @@ class BuildTemplateTest(unittest.TestCase):
         tf_runtime = re.search(r'runtime\s*=\s*"([^"]+)"', tf_main).group(1)
         self.assertEqual(cfn_runtime, tf_runtime)
 
+    def test_reserved_concurrency_is_optional_and_never_zero(self):
+        # #38: the cap is off by default in both routes, and the routes' "0
+        # means not set" never reaches Lambda as 0, which would stop every call.
+        import re
+        skeleton = (REPO / "template.skeleton.yaml").read_text(encoding="utf-8")
+        param = re.search(r"\n  ReservedConcurrency:\n(.*?)(?=\n\n)", skeleton, re.S).group(1)
+        self.assertIn('Default: "0"', param)
+        pattern = re.search(r'AllowedPattern: "([^"]+)"', param).group(1)
+        for value, ok in (("0", True), ("1", True), ("5", True), ("9999", True),
+                          ("", False), ("00", False), ("05", False), ("-1", False),
+                          ("2.5", False), ("10000", False), (" 5", False), ("٥", False)):
+            with self.subTest(value=value):
+                self.assertEqual(bool(re.fullmatch(pattern, value)), ok)
+        self.assertRegex(skeleton, r'HasReservedConcurrency: !Not\n\s+- !Equals\n\s+- !Ref ReservedConcurrency\n\s+- "0"\n')
+        function = skeleton[skeleton.index("\n  BlobFunction:\n"):skeleton.index("\n      Code:")]
+        self.assertRegex(function, r"ReservedConcurrentExecutions: !If\n\s+- HasReservedConcurrency\n"
+                                   r"\s+- !Ref ReservedConcurrency\n\s+- !Ref AWS::NoValue\n")
+        tf_vars = (REPO / "alternatives" / "terraform" / "variables.tf").read_text(encoding="utf-8")
+        tf_main = (REPO / "alternatives" / "terraform" / "main.tf").read_text(encoding="utf-8")
+        var = tf_vars[tf_vars.index('variable "reserved_concurrency"'):]
+        self.assertRegex(var, r"default\s*=\s*0\n")
+        self.assertRegex(var, r"nullable\s*=\s*false\n")
+        # The template's pattern stops at 9999 (checked above); so does Terraform.
+        self.assertIn("var.reserved_concurrency <= 9999", var)
+        self.assertRegex(tf_main, r"reserved_concurrent_executions\s*=\s*var\.reserved_concurrency == 0 \? -1 : var\.reserved_concurrency\n")
+
     def test_handler_marker_must_appear_exactly_once(self):
         skeleton = self.tmp / "template.skeleton.yaml"
         text = (REPO / "template.skeleton.yaml").read_text(encoding="utf-8")

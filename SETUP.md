@@ -155,6 +155,53 @@ token gives full read/write/delete over that one bucket —
 it reaches nothing else in the account — and rotation is
 the complete remedy.
 
+## Capping concurrent calls
+
+The Function URL is public, and every call to it is billed,
+rejected ones too. A reserved concurrency on the function caps
+how many copies of it run at once, and so what anyone calling it
+can run up. An assistant's fetches are occasional, so a small cap
+(5, say) doesn't get in their way. Calls past the cap get HTTP
+`429`; the store is unchanged. Reserving concurrency costs
+nothing in itself.
+
+It's off by default (`ReservedConcurrency` 0). To set it, or
+change it, in CloudShell, without touching the token:
+
+```
+curl -fsSL -O https://github.com/cmeans/s3-blob-store/releases/download/<release>/template.yaml && aws cloudformation deploy --template-file template.yaml --stack-name s3-blob-store --capabilities CAPABILITY_IAM --parameter-overrides ReservedConcurrency=5
+```
+
+Use the current release, as for a rotation: an older
+`template.yaml` would roll the stack back to it. For a suffixed
+store, use `--stack-name s3-blob-store-<x>`. Parameters the command
+doesn't name, the token's digest and the suffix included, keep
+their current values (the AWS CLI's `deploy` says so for an
+update), so the token and the FunctionUrl don't change, and a
+later rotation keeps the cap. `ReservedConcurrency=0` removes the
+cap again. Here 0 means "no cap", not Lambda's own reserved
+concurrency of 0, which stops every call. If the stack already has
+the value you give, the command says there are no changes to
+deploy, and nothing changes. (Setting and removing the cap are
+in SKILL.md's STORE-TEST, and haven't been run live yet.)
+
+AWS refuses a cap that would leave the account's unreserved
+concurrency below 100, and new accounts start with a reduced
+concurrency quota. If the deploy fails that way, CloudFormation
+rolls the update back, leaving the store as it was (not yet seen
+live): leave the cap at 0, or ask AWS for a higher Lambda concurrency quota
+(Service Quotas, "Concurrent executions") and try again. To see
+your account's quota and the cap:
+
+```
+aws lambda get-account-settings --query AccountLimit
+F=$(aws cloudformation describe-stack-resource --stack-name s3-blob-store --logical-resource-id BlobFunction --query StackResourceDetail.PhysicalResourceId --output text)
+aws lambda get-function-concurrency --function-name "$F"
+```
+
+The Terraform route takes the same setting as its
+`reserved_concurrency` variable (`alternatives/terraform/README.md`).
+
 ## Security summary
 
 - The token's SHA-256 digest is the only form of it in AWS
