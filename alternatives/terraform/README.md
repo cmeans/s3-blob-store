@@ -150,11 +150,13 @@ template's parameter, Terraform keeps no previous value: give it on
 every apply, a rotation's included, or the cap goes back to 0. A
 `terraform.tfvars` file in this directory holding
 `reserved_concurrency = 5` does that (`*.tfvars` is git-ignored; keep
-the digest out of it). AWS refuses a cap that would leave the
-account's unreserved concurrency below 100, and new accounts start
-with a reduced quota: if the apply fails that way, leave it at 0.
-`aws lambda get-account-settings --query AccountLimit` shows the
-account's quota, and `aws lambda get-function-concurrency
+the digest out of it). AWS refuses a cap that would cut into the
+concurrency it keeps unreserved: 100 by its documentation. On a new
+account whose limit was 10, it refused any cap at all. If the apply fails that way, leave it at 0, or
+request a higher quota (Service Quotas, AWS Lambda, "Concurrent
+executions", `L-B99A9384`); SETUP.md, Capping concurrent calls, has
+the details. `aws lambda get-account-settings --query AccountLimit`
+shows the account's limit, and `aws lambda get-function-concurrency
 --function-name handoff-blob-store` the cap.
 
 ## If you deployed from an earlier version of this repo

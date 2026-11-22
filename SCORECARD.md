@@ -8,6 +8,70 @@ scratch stack and dummy data in the maintainer's own AWS account
 (us-east-2), and was cleaned up afterwards. Sections are newest
 first.
 
+## CloudFormation template, after #39, 2026-11-21 (evening CT; 2026-11-22 UTC)
+
+**Verdict: pass, with two rows skipped as the table allows.** One run
+by an assistant (Muse) in the standalone CloudShell console, on a
+scratch stack (`bash deploy.sh --suffix st9927`), with dummy data
+only, the production store untouched. This is the first run since
+[#39](https://github.com/cmeans/s3-blob-store/pull/39) added the
+optional `ReservedConcurrency` parameter. The handler and `deploy.sh`
+are unchanged since run 2 below. The new cap row couldn't be run:
+AWS refused the cap for this account's concurrency quota. So setting
+a cap and clearing it again still haven't been seen live; the
+refusal, and the clean rollback after it, have.
+
+### Commit 9927d86
+
+`template.yaml` 14,021 bytes, SHA-256
+`14b2d8aae15ace55ec418516ed27edc902b158154d0bf64b4921822cfc3593eb`;
+`deploy.sh` 18,648 bytes, SHA-256
+`9ea79f240d02d15ccdd7c1f5d30e9b839531115487770d480cd2256b713e1fc9`
+(unchanged since v0.1.0). Both fetched from the repository at that
+commit and hash-checked. The deploy gave exit 0, with the token file
+mode 600.
+
+| Check | Result |
+|---|---|
+| Health, `Bearer` token | Pass: 200, body `ok` |
+| Health, lowercase `bearer` | Pass: 200, body `ok` |
+| Unauthenticated `GET` of a blob | Pass: 401 |
+| Missing label | Pass: 404 |
+| Round trips 400 / 2,700 / 8,000 / 64,000 characters | Pass: byte-identical, SHA-256 match |
+| Replace | Pass: new content served |
+| Delete, then `GET` | Pass: `deleted`, then 404 |
+| Non-UTF-8 bytes `ff fe 00 61 62 63` as `text/plain` | Pass: 400 `body must be UTF-8 text (U+FFFD not allowed)`, then 404 |
+| The same bytes as `application/octet-stream` | Pass: 400 `body must be UTF-8 text` (the base64 path), then 404 |
+| `café` (`63 61 66 c3 a9`) as `application/octet-stream` | Pass: stored, GET returned the same 5 bytes |
+| Resource policy (`aws lambda get-policy`) | Pass: the `lambda:InvokeFunction` statement for principal `*` carries `lambda:InvokedViaFunctionUrl` = `true` |
+| Direct invoke from an identity with no Lambda permissions | Skipped, as the row allows: only the account admin was at hand, and no IAM principals were created for the test |
+| Concurrency cap: `ReservedConcurrency=2`, then `0` | Skipped, as the row allows: AWS refused the cap. See below |
+| `deploy.sh --check` with the token file present | Pass: `LIVE`, exit 0 |
+| The one-paste again, without `--rotate` | Pass: `already exists (UPDATE_ROLLBACK_COMPLETE)` (the state the cap row's rollback left), exit 3, nothing changed |
+| Rotation | Pass: `Rotated.`; old token 401, new token 200; new token file mode 600 |
+| `--suffix` of 22 characters | Pass: refused before any AWS call, exit 3 |
+
+**The cap row.** The template's guard found the parameter, and the
+deploy with `ReservedConcurrency=2` failed, exit 255. The stack event
+was `UPDATE_FAILED` with "Specified ReservedConcurrentExecutions for
+function decreases account's UnreservedConcurrentExecution below its
+minimum value of [10]. (Service: Lambda, Status Code: 400)".
+`aws lambda get-account-settings` gave `ConcurrentExecutions` 10 and
+`UnreservedConcurrentExecutions` 10. AWS documents a floor of 100
+unreserved; on this account, whose whole limit is 10, the floor was
+the whole limit, so no cap of any size could be set. The stack
+rolled back cleanly (`UPDATE_ROLLBACK_COMPLETE`).
+`get-function-concurrency` showed no reservation, and `GET /` with
+the same token still answered 200 `ok`. The follow-up deploy with
+`ReservedConcurrency=0` reported no changes, exit 0, and still no
+reservation.
+
+**Cleanup.** Every test label was deleted through the API before the
+stack (each `deleted`, then 404), so the bucket was empty and
+`delete-stack` succeeded the first time. The Function URL then
+answered with an AWS-level 403 (`AccessDeniedException`), not the
+handler. Token files were removed from CloudShell.
+
 ## CloudFormation template, pre-release, 2026-11-21
 
 **Verdict: pass.** Two runs by an assistant (Muse) in the standalone

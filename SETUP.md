@@ -159,12 +159,17 @@ the complete remedy.
 
 ## Capping concurrent calls
 
-The Function URL is public, and every call to it is billed,
-rejected ones too. A reserved concurrency on the function caps
-how many copies of it run at once, and so how fast anyone calling
-it can run up a bill (not the total: a caller who keeps going
-keeps costing, at the capped rate). Calls past the cap get HTTP
-`429`, and the store is unchanged. An assistant's fetches are
+The Function URL is public, and every call that reaches the
+handler is billed, the ones it refuses with `401` too. A reserved
+concurrency on the function caps how many copies of it run at
+once, and so how fast anyone calling it can run up a bill (not
+the total: a caller who keeps going keeps costing, at the capped
+rate). Calls past the cap get HTTP `429` from Lambda, and the
+store is unchanged. They aren't billed: AWS counts a throttled
+request in neither `Invocations` nor `Errors`, and the
+`Invocations` count is the number of requests billed. AWS also
+throttles a Function URL at 10 requests per second for each unit
+of reserved concurrency. An assistant's fetches are
 occasional, so a small cap (5, say) doesn't get in their way
 normally; but while someone floods the URL, the assistant's own
 calls get `429` too, until the flood stops. The cap trades a
@@ -193,16 +198,29 @@ later rotation keeps the cap. `ReservedConcurrency=0` removes the
 cap again. Here 0 means "no cap", not Lambda's own reserved
 concurrency of 0, which stops every call. Whatever the command
 prints, `No changes to deploy` included, confirm the result with
-`get-function-concurrency` below. (Setting and removing the cap
-are in SKILL.md's STORE-TEST, and haven't been run live yet.)
+`get-function-concurrency` below. (Setting a cap and removing it
+again are in SKILL.md's STORE-TEST, and haven't been seen live
+yet: the run after #39 was refused, below. AWS doesn't document
+what CloudFormation does when the property goes away; its
+resource schema lets an update remove a reservation, so `0` is
+expected to clear it.)
 
-AWS refuses a cap that would leave the account's unreserved
-concurrency below 100, and new accounts start with a reduced
-concurrency quota. If the deploy fails that way, CloudFormation
-rolls the update back, leaving the store as it was (not yet seen
-live): leave the cap at 0, or ask AWS for a higher Lambda concurrency quota
-(Service Quotas, "Concurrent executions") and try again. To see
-your account's quota and the cap (with `S` set as above):
+AWS keeps part of every account's concurrency unreserved, and
+refuses a cap that would cut into it. Its documentation says 100
+must stay unreserved, and it doesn't say what happens on an
+account whose whole limit is below that. New accounts start with
+a reduced concurrency quota, which AWS raises automatically with
+use. The STORE-TEST after #39 ran on an account whose limit was
+10, and there the floor was the whole limit, so no cap could be
+set at all: "Specified ReservedConcurrentExecutions for function
+decreases account's UnreservedConcurrentExecution below its
+minimum value of [10]" (SCORECARD.md). AWS names the floor in
+that error. The deploy failed, CloudFormation rolled the update
+back, and the store kept working as before, with the same token. Leave
+the cap at 0, or request a higher quota in Service Quotas (AWS
+Lambda, "Concurrent executions", quota code `L-B99A9384`, per
+region) and try again. To see your account's limit
+(`ConcurrentExecutions`) and the cap (with `S` set as above):
 
 ```
 aws lambda get-account-settings --query AccountLimit

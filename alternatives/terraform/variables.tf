@@ -44,7 +44,7 @@ variable "name_suffix" {
 }
 
 variable "reserved_concurrency" {
-  description = "Optional cap on how many copies of the function run at once. 0 (the default) sets no cap: here 0 means \"not set\", unlike the provider's own reserved_concurrent_executions = 0, which stops every call. Calls past the cap get HTTP 429. AWS refuses a cap that would leave the account's unreserved concurrency below 100; on an account with a low concurrency quota, leave this at 0."
+  description = "Optional cap on how many copies of the function run at once. 0 (the default) sets no cap: here 0 means \"not set\", unlike the provider's own reserved_concurrent_executions = 0, which stops every call. Calls past the cap get HTTP 429. AWS refuses a cap that would cut into the concurrency it keeps unreserved (100 by its documentation; on an account whose limit was 10, it refused any cap), so on an account with a low concurrency quota leave this at 0."
   type        = number
   default     = 0
   nullable    = false
