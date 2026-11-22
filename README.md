@@ -299,10 +299,11 @@ run yet.
   URL can call it, and each call costs a little even when it gets a
   401. The function has no concurrency cap unless you set one:
   `ReservedConcurrency` (Terraform: `reserved_concurrency`) caps how
-  many copies run at once, and so what such calls can run up. It's
-  off by default because AWS refuses a cap on accounts with a low
-  concurrency quota, which new accounts start with. How to set it is
-  in SETUP.md, Capping concurrent calls.
+  many copies run at once, and so how fast such calls can run up a
+  bill; while someone floods the URL, your assistant's calls are
+  refused too (HTTP 429). It's off by default because AWS refuses a
+  cap on accounts with a low concurrency quota, which new accounts
+  start with. How to set it is in SETUP.md, Capping concurrent calls.
 - **One token, no expiry.** There is no expiry or revocation list:
   the token works until you rotate it, so rotating is how you cut off
   a leaked one, short of deleting the store. With the template that's

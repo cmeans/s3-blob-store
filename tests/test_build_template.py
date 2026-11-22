@@ -248,8 +248,9 @@ class BuildTemplateTest(unittest.TestCase):
         var = tf_vars[tf_vars.index('variable "reserved_concurrency"'):]
         self.assertRegex(var, r"default\s*=\s*0\n")
         self.assertRegex(var, r"nullable\s*=\s*false\n")
-        # The template's pattern stops at 9999 (checked above); so does Terraform.
-        self.assertIn("var.reserved_concurrency <= 9999", var)
+        # Whole numbers 0-9999, as the template's pattern (checked above).
+        self.assertIn("condition     = var.reserved_concurrency == floor(var.reserved_concurrency)"
+                      " && var.reserved_concurrency >= 0 && var.reserved_concurrency <= 9999\n", var)
         self.assertRegex(tf_main, r"reserved_concurrent_executions\s*=\s*var\.reserved_concurrency == 0 \? -1 : var\.reserved_concurrency\n")
 
     def test_handler_marker_must_appear_exactly_once(self):

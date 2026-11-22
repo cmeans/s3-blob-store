@@ -49,9 +49,10 @@ Parameters:
       OPTIONAL cap on how many copies of the function run at once.
       0 (the default) sets no cap: here 0 means "not set", unlike
       Lambda's own 0, which stops every call. Each call is billed,
-      rejected ones too, so a small cap (5, say) limits what anyone
-      calling the public Function URL can run up; calls past it get
-      HTTP 429. AWS refuses a cap that would leave the account's
+      rejected ones too, so a small cap (5, say) limits how fast
+      anyone calling the public Function URL can run up a bill;
+      calls past it get HTTP 429 (your assistant's too, during a
+      flood). AWS refuses a cap that would leave the account's
       unreserved concurrency below 100, so on an account with a
       low concurrency quota leave this at 0 (SETUP.md, Capping
       concurrent calls).

@@ -73,7 +73,9 @@ and any method gets 401 before anything else is checked.
 
 Errors: 401 `unauthorized` (missing or wrong token), 404
 `not found` (no blob at the label, or no such route), 405
-`method not allowed`, 400 `invalid label` (label fails
+`method not allowed`, 429 (from Lambda, not the handler: the
+store's concurrency cap, when one is set, is full; nothing was
+changed, retry later; see Capping concurrent calls), 400 `invalid label` (label fails
 validation), 400 `body must be UTF-8 text` (a body the Function
 URL hands over base64-encoded that isn't valid base64 or UTF-8,
 or a text body that can't be encoded as UTF-8), 400
@@ -159,31 +161,40 @@ the complete remedy.
 
 The Function URL is public, and every call to it is billed,
 rejected ones too. A reserved concurrency on the function caps
-how many copies of it run at once, and so what anyone calling it
-can run up. An assistant's fetches are occasional, so a small cap
-(5, say) doesn't get in their way. Calls past the cap get HTTP
-`429`; the store is unchanged. Reserving concurrency costs
-nothing in itself.
+how many copies of it run at once, and so how fast anyone calling
+it can run up a bill (not the total: a caller who keeps going
+keeps costing, at the capped rate). Calls past the cap get HTTP
+`429`, and the store is unchanged. An assistant's fetches are
+occasional, so a small cap (5, say) doesn't get in their way
+normally; but while someone floods the URL, the assistant's own
+calls get `429` too, until the flood stops. The cap trades a
+bigger bill for that outage. Reserving concurrency costs nothing
+in itself.
 
-It's off by default (`ReservedConcurrency` 0). To set it, or
-change it, in CloudShell, without touching the token:
+It's off by default (`ReservedConcurrency` 0), and it needs a
+release whose `template.yaml` has the `ReservedConcurrency`
+parameter: any release after v0.1.0. With an older template the
+AWS CLI drops the setting without an error, so the line below
+checks for it first. To set the cap, or change it, in CloudShell,
+without touching the token (for a suffixed store, set
+`S=s3-blob-store-<x>`):
 
 ```
-curl -fsSL -O https://github.com/cmeans/s3-blob-store/releases/download/<release>/template.yaml && aws cloudformation deploy --template-file template.yaml --stack-name s3-blob-store --capabilities CAPABILITY_IAM --parameter-overrides ReservedConcurrency=5
+S=s3-blob-store
+curl -fsSL -O https://github.com/cmeans/s3-blob-store/releases/download/<release>/template.yaml && if grep -q '^  ReservedConcurrency:' template.yaml; then aws cloudformation deploy --template-file template.yaml --stack-name "$S" --capabilities CAPABILITY_IAM --parameter-overrides ReservedConcurrency=5; else echo "Stopped: this release's template.yaml has no ReservedConcurrency parameter; use a later release. Nothing was changed."; fi
 ```
 
 Use the current release, as for a rotation: an older
-`template.yaml` would roll the stack back to it. For a suffixed
-store, use `--stack-name s3-blob-store-<x>`. Parameters the command
-doesn't name, the token's digest and the suffix included, keep
-their current values (the AWS CLI's `deploy` says so for an
+`template.yaml` would roll the stack back to it. Parameters the
+command doesn't name, the token's digest and the suffix included,
+keep their current values (the AWS CLI's `deploy` says so for an
 update), so the token and the FunctionUrl don't change, and a
 later rotation keeps the cap. `ReservedConcurrency=0` removes the
 cap again. Here 0 means "no cap", not Lambda's own reserved
-concurrency of 0, which stops every call. If the stack already has
-the value you give, the command says there are no changes to
-deploy, and nothing changes. (Setting and removing the cap are
-in SKILL.md's STORE-TEST, and haven't been run live yet.)
+concurrency of 0, which stops every call. Whatever the command
+prints, `No changes to deploy` included, confirm the result with
+`get-function-concurrency` below. (Setting and removing the cap
+are in SKILL.md's STORE-TEST, and haven't been run live yet.)
 
 AWS refuses a cap that would leave the account's unreserved
 concurrency below 100, and new accounts start with a reduced
@@ -191,13 +202,16 @@ concurrency quota. If the deploy fails that way, CloudFormation
 rolls the update back, leaving the store as it was (not yet seen
 live): leave the cap at 0, or ask AWS for a higher Lambda concurrency quota
 (Service Quotas, "Concurrent executions") and try again. To see
-your account's quota and the cap:
+your account's quota and the cap (with `S` set as above):
 
 ```
 aws lambda get-account-settings --query AccountLimit
-F=$(aws cloudformation describe-stack-resource --stack-name s3-blob-store --logical-resource-id BlobFunction --query StackResourceDetail.PhysicalResourceId --output text)
+F=$(aws cloudformation describe-stack-resource --stack-name "$S" --logical-resource-id BlobFunction --query StackResourceDetail.PhysicalResourceId --output text)
 aws lambda get-function-concurrency --function-name "$F"
 ```
+
+A cap shows as `"ReservedConcurrentExecutions": 5`; no cap, as a
+reply without that field.
 
 The Terraform route takes the same setting as its
 `reserved_concurrency` variable (`alternatives/terraform/README.md`).

@@ -139,10 +139,12 @@ digest, then update the credential wherever your agent platform holds
 it.
 
 **Capping concurrent calls:** `reserved_concurrency` (default 0, no
-cap) sets a reserved concurrency on the function, so that someone
-calling the public Function URL can't run up the bill; calls past it
-get HTTP `429`. A small value such as 5 is plenty for an assistant's
-occasional fetches. 0 here means "no cap" (it becomes the provider's
+cap) sets a reserved concurrency on the function, which limits how
+fast someone calling the public Function URL can run up the bill;
+calls past it get HTTP `429`. A small value such as 5 is plenty for
+an assistant's occasional fetches, though while someone floods the
+URL the assistant's calls get `429` too (SETUP.md, Capping
+concurrent calls). 0 here means "no cap" (it becomes the provider's
 `-1`), never Lambda's own 0, which stops every call. Unlike the
 template's parameter, Terraform keeps no previous value: give it on
 every apply, a rotation's included, or the cap goes back to 0. A
